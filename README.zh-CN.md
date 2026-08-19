@@ -54,7 +54,7 @@
 - 🔍 **每题追问 ≥3 次**：答得再「看起来不错」也要换个角度深挖——为什么、缺点、边界、反例
 - 😤 **答不上就降级**：「不知道 / 不会 / 不清楚」→ 先犀利点出问题，再把问题拆成最基础的子问题重问
 - 😏 **连续答不上就嘲讽**：「这已经是第 N 次答不上来了，你的简历是不是有点注水了」
-- 🚪 **实在不行就劝退**：连续 4 次基础问题答不上，面试官直接合上简历——「回去把基本功补扎实再来」
+- 🚪 **实在不行就劝退**：累计 4 次基础问题答不上，面试官直接合上简历——「回去把基本功补扎实再来」
 
 8 个岗位各有一套**专属角色 + 知识图谱 + 大厂真题弹药**：
 
@@ -80,6 +80,8 @@ RAG/检索增强 · 多模态/视觉算法 · AI 评测/质量 · Prompt/提示�
 
 ## 🚀 快速开始
 
+> **你需要**：Python 3.10+ · 一个 LLM API Key（DeepSeek / 阿里云百炼 / 任何 OpenAI 兼容接口）
+
 ### 方式一：源码运行（推荐开发者）
 
 ```bash
@@ -89,7 +91,7 @@ cd skill-gauntlet
 
 # 2. 启动（自动打开浏览器）
 ./start.sh          # macOS / Linux
-# Windows 双击 start.sh 或运行 python3 server.py
+# Windows 运行 python3 server.py（start.sh 是 macOS/Linux 的 bash 脚本）
 
 # 3. 浏览器打开 http://127.0.0.1:8765
 ```
@@ -105,7 +107,7 @@ open dist/AI面试能力评估.app    # macOS
 
 ### 配置 LLM（必需）
 
-首次使用在「⚙️ 设置」里填 API Key（支持 **DeepSeek 官方**、**阿里云百炼** 等 OpenAI 兼容接口）。Key 只存浏览器、浏览器直连 API，**不经过服务器、不出本机**。
+首次使用在「⚙️ 设置」里填 API Key（支持 **DeepSeek 官方**、**阿里云百炼** 等 OpenAI 兼容接口）。Key 由浏览器直连 LLM 使用，也可从本机环境变量一键读取自动填入——**全程不出本机**。
 
 ---
 
@@ -148,7 +150,9 @@ open dist/AI面试能力评估.app    # macOS
 │   ├── prompts.js       # 全部 LLM 提示词（集中管理）
 │   ├── scoring.js       # 判分 / 题目校验
 │   ├── profile.js       # 能力画像 / 等级 / 徽章
-│   └── job_knowledge.json  # 8 岗位知识库（大厂真题）
+│   ├── job_knowledge.js # 岗位知识库加载器（fetch JSON）
+│   ├── job_knowledge.json  # 8 岗位知识库（大厂真题）
+│   └── fonts/           # 网页字体（Orbitron / Share Tech Mono / Smiley）
 ├── tests/               # 38 个测试（后端 16 + 前端 22）
 ├── docs/                # 维护文档
 └── build.spec           # PyInstaller 打包配置
@@ -167,7 +171,7 @@ open dist/AI面试能力评估.app    # macOS
 ## 🔒 隐私
 
 - **数据 100% 本地**：笔记、题库、考核记录都存在 `~/.exam-center/`，不上传任何服务器
-- **API Key 不出浏览器**：浏览器直连 LLM，后端只做 HTTP 转发与存储，不接触你的 Key
+- **API Key 全程不出本机**：浏览器直连 LLM；后端可能从本机环境变量读取 Key 用于自动填入，但绝不上传、不存储到任何地方
 - **单机单用户**：为个人学习设计，非多租户服务
 
 ---

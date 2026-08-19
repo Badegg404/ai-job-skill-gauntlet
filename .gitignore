@@ -13,11 +13,6 @@ dist/
 
 # 运行时数据（用户本地数据，绝不上传）
 .exam-center/
-web/users/
-web/course.json
-web/courses/
-web/imports/
-web/*.course.json
 
 # 日志
 *.log

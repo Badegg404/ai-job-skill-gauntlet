@@ -54,7 +54,7 @@ The most human part of the whole system — this is the gauntlet. It will:
 - 🔍 **Probe ≥3 times per question**: even a decent answer gets dug deeper — why, drawbacks, edge cases, counterexamples
 - 😤 **Downgrade when you can't answer**: "I don't know / can't" → point it out sharply, then break the question into the most basic sub-question
 - 😏 **Roast you after repeated misses**: "That's the Nth time you couldn't answer — is your resume a little inflated?"
-- 🚪 **End it early**: 4 straight misses on basics, and the interviewer closes your resume — "go back and build the fundamentals first"
+- 🚪 **End it early**: 4 cumulative misses on basics, and the interviewer closes your resume — "go back and build the fundamentals first"
 
 Each of the 8 roles has its own **dedicated persona + knowledge graph + real interview-question arsenal**:
 
@@ -80,6 +80,8 @@ From it you get: a **baseline level** + **your best-matched AI roles** (top sugg
 
 ## 🚀 Quick Start
 
+> **You'll need**: Python 3.10+ · an LLM API key (DeepSeek / Alibaba Bailian / any OpenAI-compatible endpoint)
+
 ### Option 1: Run from source (recommended)
 
 ```bash
@@ -89,7 +91,7 @@ cd skill-gauntlet
 
 # 2. Start (auto-opens browser)
 ./start.sh          # macOS / Linux
-# On Windows, double-click start.sh or run `python3 server.py`
+# On Windows, run `python3 server.py` (start.sh is a bash script for macOS/Linux)
 
 # 3. Open http://127.0.0.1:8765 in your browser
 ```
@@ -105,7 +107,7 @@ open dist/AI面试能力评估.app    # macOS
 
 ### Configure the LLM (required)
 
-On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek official**, **Alibaba Bailian**, and any OpenAI-compatible endpoint). The key stays in your browser and calls the LLM directly — **never through the server, never off your machine**.
+On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek official**, **Alibaba Bailian**, and any OpenAI-compatible endpoint). The key is used by your browser to call the LLM directly, and can also be auto-filled from local environment variables — **it never leaves your machine**.
 
 ---
 
@@ -148,7 +150,9 @@ On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek
 │   ├── prompts.js       # all LLM prompts (centralized)
 │   ├── scoring.js       # judging / question validation
 │   ├── profile.js       # skill profile / levels / badges
-│   └── job_knowledge.json  # 8-role knowledge base (real interview questions)
+│   ├── job_knowledge.js # job-knowledge loader (fetches the JSON)
+│   ├── job_knowledge.json  # 8-role knowledge base (real interview questions)
+│   └── fonts/           # web fonts (Orbitron / Share Tech Mono / Smiley)
 ├── tests/               # 38 tests (16 backend + 22 frontend)
 ├── docs/                # maintenance docs
 └── build.spec           # PyInstaller config
@@ -167,7 +171,7 @@ On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek
 ## 🔒 Privacy
 
 - **Data is 100% local**: notes, question banks, and exam history live in `~/.exam-center/` — nothing is uploaded
-- **API key never leaves the browser**: the browser calls the LLM directly; the backend only relays HTTP and stores data, never touching your key
+- **API key never leaves your machine**: the browser calls the LLM directly; the backend may read the key from local environment variables to auto-fill it, but never uploads or stores it anywhere
 - **Single-user by design**: built for personal learning, not multi-tenant
 
 ---
