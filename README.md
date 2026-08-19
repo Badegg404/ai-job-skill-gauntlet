@@ -1,98 +1,100 @@
-# ⚡ AI 岗位面试持续能力评估系统
+# ⚡ AI Job Interview Capability Assessment
 
 <div align="center">
 
-**本地运行 · LLM 驱动 · 仿真面试官 · 能力画像 · 游戏化成长**
+**Local-first · LLM-powered · Simulated Interviewer · Skill Profiling · Gamified Growth**
 
-把你的学习资料变成一场「真刀真枪」的面试。
+Turn your study materials into a real, high-pressure interview.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
-[![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20通义千问-FF6B6B)](#)
-[![本地运行](https://img.shields.io/badge/隐私-100%25%20本地-2FD6B5)](#)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
+[![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20Qwen-FF6B6B)](#)
+[![Local-first](https://img.shields.io/badge/Privacy-100%25%20Local-2FD6B5)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
+
+**English** · [中文文档](./README.zh-CN.md)
 
 </div>
 
-> **一句话**：导入你的学习资料（笔记 / 代码 / 数据），AI 自动出题，一个**会追问、会嘲讽、会劝退**的仿真面试官考核你，最后给你一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
+> **In one line**: Import your study materials (notes / code / data), let AI generate questions, get grilled by a simulated interviewer that **probes, roasts, and even kicks you out**, then walk away with a 10-dimension skill radar + job-match report + gamified growth.
 
 ---
 
-## ✨ 为什么你需要它
+## ✨ Why this exists
 
-学了一堆 AI / Agent / RAG 知识，却不知道自己**到底会不会**？
+You've studied tons of AI / Agent / RAG knowledge — but do you actually **know it**?
 
-- ❌ 刷题刷完就忘 —— 题目和你学的资料脱节
-- ❌ 背答案能过 —— 换个说法就不会
-- ❌ 没有面试压力 —— 真面试时一问三不知
+- ❌ Rote-memorized questions you forget the next day
+- ❌ Answers that work until the phrasing changes
+- ❌ Zero interview pressure until it's a real interview
 
-这个系统解决的就是这件事：**让 LLM 把你的学习资料变成「能区分真懂和死记硬背」的考题，再用一个最严厉的面试官把你问到原形毕露。**
+This system fixes exactly that: **turn your study materials into questions that separate "real understanding" from "memorization", then let a ruthless interviewer expose what you don't actually know.**
 
 ---
 
-## 🚀 核心能力
+## 🚀 Core Capabilities
 
-| 能力 | 说明 |
+| Capability | Description |
 |---|---|
-| 📥 **资料 → 题目** | 拖入整个学习文件夹，LLM 自动解析笔记/代码/数据，生成 **12 道考核题**（理论 8 + 实战 4）+ 3 道岗位面试参考题 |
-| 📘 **理论考核** | 选择 / 判断 / 填空，客观题代码判分，零误差 |
-| 🛠️ **实战考核** | 结合你课程的**真实代码**出题——不是泛泛的「实现一个函数」，而是「改这份 demo 里的过滤逻辑」 |
-| 💼 **面试考核** | 8 个 AI 岗位任选，**会追问、会降级、会嘲讽、会提前劝退**的仿真面试官 |
-| 🧬 **10 维能力画像** | 雷达图 + 基础水平评估 + 岗位匹配建议 |
-| 🎮 **游戏化成长** | XP / 等级 / 徽章 / 连续学习 streak |
-| 🔒 **100% 本地** | 数据存 `~/.exam-center/`，API Key 只存浏览器、直连 LLM、**不出你的电脑** |
+| 📥 **Materials → Questions** | Drop in a whole folder; LLM parses notes/code/data and generates **12 exam questions** (8 theory + 4 practical) + 3 job-interview reference questions |
+| 📘 **Theory Exam** | Multiple-choice / true-false / fill-in-the-blank, judged by code with zero error |
+| 🛠️ **Practical Exam** | Questions built on **your course's actual code** — not a generic "implement a function", but "fix the filter logic in this demo" |
+| 💼 **Interview** | Pick from 8 AI roles; a simulated interviewer that **probes, downgrades, roasts, and ends the interview early** |
+| 🧬 **10-Dimension Profile** | Radar chart + baseline level + job-match suggestions |
+| 🎮 **Gamified Growth** | XP / levels / badges / streaks |
+| 🔒 **100% Local** | Data lives in `~/.exam-center/`; API key stays in your browser and calls the LLM directly — **never leaves your machine** |
 
 ---
 
-## 💼 面试官 —— 不止是「会提问」
+## 💼 The Interviewer — more than "asking questions"
 
-这是全系统最「有灵魂」的部分。它会：
+The most human part of the whole system. It will:
 
-- 🎬 **有神态动作**：`（面试官合上简历，叹了口气）`、`（眉头微皱，身体前倾）`
-- 🔍 **每题追问 ≥3 次**：答得再「看起来不错」也要换个角度深挖——为什么、缺点、边界、反例
-- 😤 **答不上就降级**：「不知道 / 不会 / 不清楚」→ 先犀利点出问题，再把问题拆成最基础的子问题重问
-- 😏 **连续答不上就嘲讽**：「这已经是第 N 次答不上来了，你的简历是不是有点注水了」
-- 🚪 **实在不行就劝退**：连续 4 次基础问题答不上，面试官直接合上简历——「回去把基本功补扎实再来」
+- 🎬 **Have mannerisms**: `(closes your resume, sighs)`、`(furrows brows, leans forward)`
+- 🔍 **Probe ≥3 times per question**: even a decent answer gets dug deeper — why, drawbacks, edge cases, counterexamples
+- 😤 **Downgrade when you can't answer**: "I don't know / can't" → point it out sharply, then break the question into the most basic sub-question
+- 😏 **Roast you after repeated misses**: "That's the Nth time you couldn't answer — is your resume a little inflated?"
+- 🚪 **End it early**: 4 straight misses on basics, and the interviewer closes your resume — "go back and build the fundamentals first"
 
-8 个岗位各有一套**专属角色 + 知识图谱 + 大厂真题弹药**：
+Each of the 8 roles has its own **dedicated persona + knowledge graph + real interview-question arsenal**:
 
 ```
-Agent 工程师 · LLM 应用开发 · AI 平台/推理优化 · 算法/机器学习
-RAG/检索增强 · 多模态/视觉算法 · AI 评测/质量 · Prompt/提示词
+Agent Engineer · LLM App Dev · AI Platform/Inference · ML/Algorithm
+RAG/Retrieval · Multimodal/Vision · AI Eval/Quality · Prompt Engineer
 ```
 
 ---
 
-## 🧬 能力画像
+## 🧬 Skill Profile
 
-每次考核后，系统根据你的作答累积一张 **10 维能力雷达图**：
+After each exam, the system accumulates a **10-dimension skill radar**:
 
 ```
-提示词工程 · RAG 与知识库 · 工具调用 · 向量与 Embedding · Agent 核心机制
-模型微调 · 开发框架 · 部署与推理 · 算法与神经网络 · 面试表达力
+Prompt Engineering · RAG & Knowledge · Tool Calling · Vector & Embedding · Agent Core
+Model Fine-tuning · Dev Frameworks · Deployment & Inference · Algorithms & Neural Nets · Interview Communication
 ```
 
-并据此给出：**基础水平等级** + **与你最匹配的 AI 岗位**（Top 建议）。
+From it you get: a **baseline level** + **your best-matched AI roles** (top suggestions).
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 方式一：源码运行（推荐开发者）
+### Option 1: Run from source (recommended)
 
 ```bash
-# 1. 安装 Python 3.10+
+# 1. Install Python 3.10+
 git clone https://github.com/Badegg404/AI-Interview-Assessment.git
 cd AI-Interview-Assessment
 
-# 2. 启动（自动打开浏览器）
+# 2. Start (auto-opens browser)
 ./start.sh          # macOS / Linux
-# Windows 双击 start.sh 或运行 python3 server.py
+# On Windows, double-click start.sh or run `python3 server.py`
 
-# 3. 浏览器打开 http://127.0.0.1:8765
+# 3. Open http://127.0.0.1:8765 in your browser
 ```
 
-### 方式二：打包成桌面应用
+### Option 2: Package as a desktop app
 
 ```bash
 python3 -m venv .venv-build && source .venv-build/bin/activate
@@ -101,72 +103,72 @@ pyinstaller --clean --noconfirm build.spec
 open dist/AI面试能力评估.app    # macOS
 ```
 
-### 配置 LLM（必需）
+### Configure the LLM (required)
 
-首次使用在「⚙️ 设置」里填 API Key（支持 **DeepSeek 官方**、**阿里云百炼** 等 OpenAI 兼容接口）。Key 只存浏览器、浏览器直连 API，**不经过服务器、不出本机**。
+On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek official**, **Alibaba Bailian**, and any OpenAI-compatible endpoint). The key stays in your browser and calls the LLM directly — **never through the server, never off your machine**.
 
 ---
 
-## 🏗️ 技术架构
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              前端（零框架零打包器）                    │
-│  exam.js(交互) · prompts.js(提示词) · profile.js     │
-│  scoring.js(判分) · job_knowledge.json(8岗位题库)    │
+│           Frontend (zero framework, zero bundler) │
+│  exam.js(logic) · prompts.js(prompts) · profile.js│
+│  scoring.js(judging) · job_knowledge.json(8 roles)│
 └──────────────────┬──────────────────────────────┘
                    │ HTTP (127.0.0.1:8765)
 ┌──────────────────▼──────────────────────────────┐
-│           Python 后端（纯标准库，无外部依赖）          │
-│  server.py(HTTP) · pipeline.py(解析出题)            │
-│  storage.py(存储) · parser/(笔记解析)               │
+│      Python backend (pure stdlib, no deps)        │
+│  server.py(HTTP) · pipeline.py(parse & generate)  │
+│  storage.py(storage) · parser/(note parsing)      │
 └──────────────────┬──────────────────────────────┘
-                   │ 浏览器直连（Key 不出浏览器）
+                   │ browser-direct (key never leaves)
 ┌──────────────────▼──────────────────────────────┐
-│         LLM（DeepSeek / 通义千问 / 任何 OpenAI 兼容）  │
-│        出题 · 判分 · 面试官 · 能力打标签                │
+│   LLM (DeepSeek / Qwen / any OpenAI-compatible)    │
+│   question gen · judging · interviewer · tagging   │
 └─────────────────────────────────────────────────┘
 ```
 
-**核心设计哲学**：`LLM 做语义，程序做数据 + 提示词 + 兜底校验`——凡是「必须保证」的规则（追问次数、出题随机、白名单、去重）都由程序硬约束，不赌 LLM 的「自觉」。
+**Core philosophy**: `LLM handles semantics, code handles data + prompts + fallback validation` — anything that "must always hold" (probe count, randomness, whitelist, dedup) is enforced by code, never left to the LLM's "initiative".
 
 ---
 
-## 📁 目录结构
+## 📁 Layout
 
 ```
 .
-├── server.py            # HTTP 服务（ThreadingHTTPServer，纯标准库）
-├── pipeline.py          # 资料解析 → 课程 JSON → 出题管线
-├── storage.py           # 数据持久化（~/.exam-center/）
-├── utils.py             # 笔记识别 / 去重 / 工具函数
-├── parser/              # Markdown 笔记解析器
-├── web/                 # 前端（零框架原生 JS）
-│   ├── exam.js          # 核心交互逻辑
-│   ├── prompts.js       # 全部 LLM 提示词（集中管理）
-│   ├── scoring.js       # 判分 / 题目校验
-│   ├── profile.js       # 能力画像 / 等级 / 徽章
-│   └── job_knowledge.json  # 8 岗位知识库（大厂真题）
-├── tests/               # 38 个测试（后端 16 + 前端 22）
-├── docs/                # 维护文档
-└── build.spec           # PyInstaller 打包配置
+├── server.py            # HTTP server (ThreadingHTTPServer, pure stdlib)
+├── pipeline.py          # material parsing → course JSON → question pipeline
+├── storage.py           # persistence (~/.exam-center/)
+├── utils.py             # note detection / dedup / helpers
+├── parser/              # Markdown note parser
+├── web/                 # frontend (zero-framework vanilla JS)
+│   ├── exam.js          # core interaction logic
+│   ├── prompts.js       # all LLM prompts (centralized)
+│   ├── scoring.js       # judging / question validation
+│   ├── profile.js       # skill profile / levels / badges
+│   └── job_knowledge.json  # 8-role knowledge base (real interview questions)
+├── tests/               # 38 tests (16 backend + 22 frontend)
+├── docs/                # maintenance docs
+└── build.spec           # PyInstaller config
 ```
 
 ---
 
-## 🧪 测试
+## 🧪 Tests
 
 ```bash
-./run_tests.sh    # 一键跑全部 38 个测试
+./run_tests.sh    # run all 38 tests
 ```
 
 ---
 
-## 🔒 隐私
+## 🔒 Privacy
 
-- **数据 100% 本地**：笔记、题库、考核记录都存在 `~/.exam-center/`，不上传任何服务器
-- **API Key 不出浏览器**：浏览器直连 LLM，后端只做 HTTP 转发与存储，不接触你的 Key
-- **单机单用户**：为个人学习设计，非多租户服务
+- **Data is 100% local**: notes, question banks, and exam history live in `~/.exam-center/` — nothing is uploaded
+- **API key never leaves the browser**: the browser calls the LLM directly; the backend only relays HTTP and stores data, never touching your key
+- **Single-user by design**: built for personal learning, not multi-tenant
 
 ---
 
@@ -178,8 +180,8 @@ open dist/AI面试能力评估.app    # macOS
 
 <div align="center">
 
-**⭐ 如果这个项目对你有帮助，点个 Star 吧！**
+**⭐ If this project helps you, give it a Star!**
 
-*从「模糊需求」到「能打的面试系统」，一行行打磨出来的。*
+*Polished line by line — from a vague idea to a working interview system.*
 
 </div>
