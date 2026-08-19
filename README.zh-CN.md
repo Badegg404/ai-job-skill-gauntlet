@@ -1,10 +1,10 @@
-# ⚡ AI 岗位能力试炼 · Skill Gauntlet
+# ⚡ AI 岗位能力试炼 · AI Job Skill Gauntlet
 
 <div align="center">
 
 **本地运行 · LLM 驱动 · 仿真面试官 · 能力画像 · 游戏化成长**
 
-▎ 闯过 AI 面试官的能力试炼 —— 10 维能力，一层层追问，要么被问穿，要么证明你真懂。
+▎ 闯过 AI 面试官的能力试炼 —— 10 个 AI 岗位维度，一层层追问，要么被问穿，要么证明你够格。
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
@@ -16,7 +16,7 @@
 
 </div>
 
-> **一句话**：导入你的学习资料，闯过 AI 面试官的能力试炼——10 维能力，一层层追问，要么被问穿，要么证明你真懂，最后得到一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
+> **一句话**：导入你的学习资料，闯过 AI 面试官的能力试炼——10 个 AI 岗位维度，一层层追问，要么被问穿，要么证明你够格，最后得到一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
 
 ---
 
@@ -86,8 +86,8 @@ RAG/检索增强 · 多模态/视觉算法 · AI 评测/质量 · Prompt/提示�
 
 ```bash
 # 1. 安装 Python 3.10+
-git clone https://github.com/Badegg404/skill-gauntlet.git
-cd skill-gauntlet
+git clone https://github.com/Badegg404/ai-job-skill-gauntlet.git
+cd ai-job-skill-gauntlet
 
 # 2. 启动（自动打开浏览器）
 ./start.sh          # macOS / Linux

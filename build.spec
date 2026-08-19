@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller 打包配置 —— AI 岗位能力试炼 · Skill Gauntlet
+PyInstaller 打包配置 —— AI 岗位能力试炼 · AI Job Skill Gauntlet
   macOS   → 生成 .app bundle（双击即用）
   Windows → 生成单个 .exe（onefile，双击即用）
 数据目录固定指向用户主目录 ~/.exam-center（见 server.py），不随包分发。

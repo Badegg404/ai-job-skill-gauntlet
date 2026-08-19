@@ -1,10 +1,10 @@
-# ⚡ Skill Gauntlet · AI 岗位能力试炼
+# ⚡ AI Job Skill Gauntlet · AI 岗位能力试炼
 
 <div align="center">
 
 **Local-first · LLM-powered · Simulated Interviewer · Skill Profiling · Gamified Growth**
 
-▎ Run the gauntlet of a ruthless AI interviewer — 10 dimensions, probe by probe, until you crack or you prove you know it.
+▎ Run the gauntlet of a ruthless AI interviewer — 10 AI-job dimensions, probe by probe, until you crack or you prove you're the hire.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
@@ -86,8 +86,8 @@ From it you get: a **baseline level** + **your best-matched AI roles** (top sugg
 
 ```bash
 # 1. Install Python 3.10+
-git clone https://github.com/Badegg404/skill-gauntlet.git
-cd skill-gauntlet
+git clone https://github.com/Badegg404/ai-job-skill-gauntlet.git
+cd ai-job-skill-gauntlet
 
 # 2. Start (auto-opens browser)
 ./start.sh          # macOS / Linux

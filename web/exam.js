@@ -398,7 +398,7 @@ function goHome() {
   }, `
     <div class="exam-hero" style="margin-bottom:26px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
-        <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px"><span style="color:#ff3df0">&gt;_</span> SYSTEM // AI 岗位能力试炼 · Skill Gauntlet</div>
+        <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px"><span style="color:#ff3df0">&gt;_</span> SYSTEM // AI 岗位能力试炼 · AI Job Skill Gauntlet</div>
         <div style="font-size:11.5px;color:var(--text-2);font-family:var(--mono);display:flex;align-items:center;gap:9px">👤 ${esc(displayName())}<span style="color:var(--border)">|</span>${LLM_KEY ? "🤖 " + esc(LLM_MODEL || "deepseek-chat") : "⚠️ 未配置 LLM"}</div>
       </div>
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
@@ -3350,9 +3350,9 @@ function exportProfile() {
   }).sort((a, b) => b.score - a.score);
 
   const lines = [];
-  lines.push("# AI 岗位能力试炼 · Skill Gauntlet 能力报告");
+  lines.push("# AI 岗位能力试炼 · AI Job Skill Gauntlet 能力报告");
   lines.push("");
-  lines.push("> 由「AI 岗位能力试炼 · Skill Gauntlet」自动生成 · " + new Date().toISOString().slice(0, 16).replace("T", " "));
+  lines.push("> 由「AI 岗位能力试炼 · AI Job Skill Gauntlet」自动生成 · " + new Date().toISOString().slice(0, 16).replace("T", " "));
   lines.push("");
   lines.push("## 基础水平");
   lines.push(`${assess.icon} ${assess.level}：${assess.desc}`);
@@ -3452,7 +3452,7 @@ async function init() {
     setTimeout(() => {
       showModal({
         icon: "🤖",
-        title: "欢迎使用 AI 岗位能力试炼 · Skill Gauntlet",
+        title: "欢迎使用 AI 岗位能力试炼 · AI Job Skill Gauntlet",
         text: "本系统的核心能力——出题、题目能力打标签、语义判分、岗位匹配——都由 LLM 驱动。建议先配置 LLM API Key（支持 DeepSeek 官方或中转站），才能完整体验理论 / 实战 / 面试三种考核。Key 仅保存在本机浏览器，浏览器直连 API，不会上传服务器。",
         actions: [
           { label: "⚙️ 去配置 LLM", primary: true, onClick: () => showSettings() },
