@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI知识考核中心 · AI 岗位能力评估</title>
+  <link rel="stylesheet" href="style.css?v=20260819">
+</head>
+<body class="exam-body">
+  <canvas id="neural-bg"></canvas>
+  <div class="hud-corner tl"></div>
+  <div class="hud-corner tr"></div>
+  <div class="hud-corner bl"></div>
+  <div class="hud-corner br"></div>
+  <div id="particle-layer"></div>
+  <div class="combo-banner" id="combo-banner"></div>
+
+  <div class="exam-wrap">
+    <!-- 顶栏：终端 HUD 风格 -->
+    <header class="exam-topbar">
+      <div class="exam-logo"><span class="logo-cursor">&gt;_</span> AI知识考核中心 <span class="logo-ai">[AI-EXAM]</span></div>
+      <div class="exam-gamestat">
+        <div class="gs-item"><div class="gs-level" id="gs-level">1</div><div class="gs-label" id="gs-title">🌱 见习学徒</div></div>
+        <div class="gs-item"><div class="gs-num" id="gs-xp">0</div><div class="gs-label">XP</div></div>
+        <div class="gs-item"><div class="gs-num" id="gs-ap">0</div><div class="gs-label">AP</div></div>
+        <div class="gs-item"><div class="gs-num" id="gs-streak">0</div><div class="gs-label">STREAK</div></div>
+        <div class="gs-item"><div class="gs-num" id="gs-badges">0</div><div class="gs-label">BADGES</div></div>
+        <div class="gs-item"><div class="gs-num" id="gs-exams">0</div><div class="gs-label">RUNS</div></div>
+      </div>
+    </header>
+
+    <!-- 视图容器 -->
+    <main id="exam-view"></main>
+  </div>
+
+  <script src="neural.js?v=20260819"></script>
+  <script src="job_knowledge.js?v=20260819"></script>
+  <script src="prompts.js?v=20260819"></script>
+  <script src="scoring.js?v=20260819"></script>
+  <script src="profile.js?v=20260819"></script>
+  <script src="exam.js?v=20260819"></script>
+</body>
+</html>
