@@ -1,4 +1,4 @@
-# ⚡ 能力试炼 · Skill Gauntlet
+# ⚡ AI 能力试炼 · Skill Gauntlet
 
 <div align="center">
 

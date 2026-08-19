@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller 打包配置 —— 能力试炼 · Skill Gauntlet
+PyInstaller 打包配置 —— AI 能力试炼 · Skill Gauntlet
   macOS   → 生成 .app bundle（双击即用）
   Windows → 生成单个 .exe（onefile，双击即用）
 数据目录固定指向用户主目录 ~/.exam-center（见 server.py），不随包分发。
@@ -46,7 +46,7 @@ if sys.platform == "darwin":
         a.scripts,
         [],
         exclude_binaries=True,
-        name="能力试炼",
+        name="AI能力试炼",
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -65,7 +65,7 @@ if sys.platform == "darwin":
         strip=False,
         upx=False,
         upx_exclude=[],
-        name="能力试炼",
+        name="AI能力试炼",
     )
     app = BUNDLE(
         coll,
@@ -81,7 +81,7 @@ else:
         a.binaries,
         a.datas,
         [],
-        name="能力试炼",
+        name="AI能力试炼",
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
