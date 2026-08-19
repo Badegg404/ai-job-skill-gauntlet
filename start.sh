@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================
-# AI 能力试炼 · Skill Gauntlet - 一键启动脚本
+# AI 岗位能力试炼 · Skill Gauntlet - 一键启动脚本
 # 功能：启动本地服务器（若未运行）+ 打开考核中心浏览器
-# 用法：双击桌面「启动AI 能力试炼 · Skill Gauntlet.command」即可
+# 用法：双击桌面「启动AI 岗位能力试炼 · Skill Gauntlet.command」即可
 # ============================================================
 
 # 项目根目录（脚本所在目录的上级）
@@ -13,7 +13,7 @@ URL="http://127.0.0.1:${PORT}/exam.html"
 
 echo ""
 echo "=============================================="
-echo "  🎯 AI 能力试炼 · Skill Gauntlet · 一键启动"
+echo "  🎯 AI 岗位能力试炼 · Skill Gauntlet · 一键启动"
 echo "=============================================="
 echo ""
 
@@ -52,7 +52,7 @@ echo "🌐 正在打开考核中心：${URL}"
 open "${URL}"
 
 echo ""
-echo "✅ 启动完成！浏览器已打开 AI 能力试炼 · Skill Gauntlet。"
+echo "✅ 启动完成！浏览器已打开 AI 岗位能力试炼 · Skill Gauntlet。"
 echo "   📄 考核中心: ${URL}"
 echo "   💾 停止服务: 终端执行 pkill -f server.py"
 echo ""
