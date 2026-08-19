@@ -14,14 +14,14 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: AI面试能力评估-macos
-            asset_pattern: "dist/AI面试能力评估.app/**"
+            artifact: 能力试炼-macos
+            asset_pattern: "dist/能力试炼.app/**"
           - os: windows-latest
-            artifact: AI面试能力评估-windows
-            asset_pattern: "dist/AI面试能力评估.exe"
+            artifact: 能力试炼-windows
+            asset_pattern: "dist/能力试炼.exe"
           - os: ubuntu-latest
-            artifact: AI面试能力评估-linux
-            asset_pattern: "dist/AI面试能力评估"
+            artifact: 能力试炼-linux
+            asset_pattern: "dist/能力试炼"
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -45,7 +45,7 @@ jobs:
           python - <<'PY'
           import os, sys, zipfile
           artifact = "${{ matrix.artifact }}"
-          target = "AI面试能力评估.app" if sys.platform == "darwin" else ("AI面试能力评估.exe" if sys.platform == "win32" else "AI面试能力评估")
+          target = "能力试炼.app" if sys.platform == "darwin" else ("能力试炼.exe" if sys.platform == "win32" else "能力试炼")
           src = os.path.join("dist", target)
           zpath = artifact + ".zip"
           if os.path.isdir(src):

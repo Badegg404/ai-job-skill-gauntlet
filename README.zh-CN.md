@@ -1,10 +1,10 @@
-# ⚡ AI 岗位面试持续能力评估系统
+# ⚡ 能力试炼 · Skill Gauntlet
 
 <div align="center">
 
 **本地运行 · LLM 驱动 · 仿真面试官 · 能力画像 · 游戏化成长**
 
-把你的学习资料变成一场「真刀真枪」的面试。
+▎ 闯过 AI 面试官的能力试炼 —— 10 维能力，一层层追问，要么被问穿，要么证明你真懂。
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
@@ -16,7 +16,7 @@
 
 </div>
 
-> **一句话**：导入你的学习资料（笔记 / 代码 / 数据），AI 自动出题，一个**会追问、会嘲讽、会劝退**的仿真面试官考核你，最后给你一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
+> **一句话**：导入你的学习资料，闯过 AI 面试官的能力试炼——10 维能力，一层层追问，要么被问穿，要么证明你真懂，最后得到一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
 
 ---
 
@@ -48,7 +48,7 @@
 
 ## 💼 面试官 —— 不止是「会提问」
 
-这是全系统最「有灵魂」的部分。它会：
+这是全系统最「有灵魂」的部分——这就是「能力试炼」。它会：
 
 - 🎬 **有神态动作**：`（面试官合上简历，叹了口气）`、`（眉头微皱，身体前倾）`
 - 🔍 **每题追问 ≥3 次**：答得再「看起来不错」也要换个角度深挖——为什么、缺点、边界、反例
@@ -84,8 +84,8 @@ RAG/检索增强 · 多模态/视觉算法 · AI 评测/质量 · Prompt/提示�
 
 ```bash
 # 1. 安装 Python 3.10+
-git clone https://github.com/Badegg404/AI-Interview-Assessment.git
-cd AI-Interview-Assessment
+git clone https://github.com/Badegg404/skill-gauntlet.git
+cd skill-gauntlet
 
 # 2. 启动（自动打开浏览器）
 ./start.sh          # macOS / Linux

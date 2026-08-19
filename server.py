@@ -806,7 +806,7 @@ def main():
     _startup_log(f"[listening] http://127.0.0.1:{port}/exam.html")
 
     url = f"http://127.0.0.1:{port}/exam.html"
-    print("🌐 AI 岗位面试能力评估系统已启动")
+    print("🌐 能力试炼 · Skill Gauntlet 已启动")
     print(f"   考核中心: {url}")
     print(f"   数据目录: {USERS_DIR}")
     print(f"   出题引擎: LLM 直连（设置页填 API Key 后启用）")

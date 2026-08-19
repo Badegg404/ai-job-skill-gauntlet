@@ -1,10 +1,10 @@
-# ⚡ AI Job Interview Capability Assessment
+# ⚡ Skill Gauntlet · 能力试炼
 
 <div align="center">
 
 **Local-first · LLM-powered · Simulated Interviewer · Skill Profiling · Gamified Growth**
 
-Turn your study materials into a real, high-pressure interview.
+▎ Run the gauntlet of a ruthless AI interviewer — 10 dimensions, probe by probe, until you crack or you prove you know it.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
@@ -16,7 +16,7 @@ Turn your study materials into a real, high-pressure interview.
 
 </div>
 
-> **In one line**: Import your study materials (notes / code / data), let AI generate questions, get grilled by a simulated interviewer that **probes, roasts, and even kicks you out**, then walk away with a 10-dimension skill radar + job-match report + gamified growth.
+> **In one line**: Import your study materials, then run the gauntlet of a simulated interviewer that probes, roasts, and even kicks you out — walk away with a 10-dimension skill radar + job-match report + gamified growth.
 
 ---
 
@@ -48,7 +48,7 @@ This system fixes exactly that: **turn your study materials into questions that 
 
 ## 💼 The Interviewer — more than "asking questions"
 
-The most human part of the whole system. It will:
+The most human part of the whole system — this is the gauntlet. It will:
 
 - 🎬 **Have mannerisms**: `(closes your resume, sighs)`、`(furrows brows, leans forward)`
 - 🔍 **Probe ≥3 times per question**: even a decent answer gets dug deeper — why, drawbacks, edge cases, counterexamples
@@ -84,8 +84,8 @@ From it you get: a **baseline level** + **your best-matched AI roles** (top sugg
 
 ```bash
 # 1. Install Python 3.10+
-git clone https://github.com/Badegg404/AI-Interview-Assessment.git
-cd AI-Interview-Assessment
+git clone https://github.com/Badegg404/skill-gauntlet.git
+cd skill-gauntlet
 
 # 2. Start (auto-opens browser)
 ./start.sh          # macOS / Linux
