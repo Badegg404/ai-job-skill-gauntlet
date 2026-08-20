@@ -1094,7 +1094,7 @@ async function browserLLMGenerate(course, part) {
 
   // 实战硬校验仅在有代码文件时生效（纯笔记目录实战轮可返回空，不阻塞导入）
   // 最低可用量门槛（宁缺毋滥）：单批 ≥8/5 即收，理想量 16/10 由导入主流程累积补足
-  const minCount = part === "theory" ? 8 : part === "practical" ? (hasCode ? 5 : 0) : (hasCode ? 13 : 8);
+  const minCount = part === "theory" ? 4 : part === "practical" ? (hasCode ? 3 : 0) : (hasCode ? 7 : 4);   // 每批小量（4/3）就收，目标 16/10 由主流程 6 轮并行累积
   const qs = await llmJSON({
     system: SYSTEM.examiner,
     prompt,
@@ -1361,15 +1361,10 @@ async function handleImportFileList(mdFiles) {
           const [thRes, pracRes] = await Promise.all([thJob, pracJob]);
           if (thRes !== null) { if (!thRes || !thRes.length) thStuck = true; else if (!hangQ(thRes)) thStuck = true; }
           if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
-        }        // 理论 <8 才失败（理论是考核刚需）；实战不足（有代码时）不失败——宁缺毋滥：收下已有，提示补出题
-        if (countTheory() < 8) {
-          clearInterval(pTimer);
-          const err = new Error("理论题不足（" + countTheory() + "/8），目录已保留，可重新导入或点「🤖 补出题」");
-          throw err;
         }
-        const pracWarn = hasCode && countPrac() < 5
-          ? "；实战题仅 " + countPrac() + " 道（不足 5，LLM 服务可能限流），可点「🤖 补出题」补足"
-          : "";
+        // 数量校验（宁缺毋滥）：收纳实际生成的全部题目；理论 <8 / 实战 <5 时按钮置灰 + 提示补出题或重新导入
+        const theoryWarn = countTheory() < 8 ? "理论题仅 " + countTheory() + " 道（不足 8，理论考核按钮已置灰），可点「🤖 补出题」或重新导入" : "";
+        const pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「🤖 补出题」补足" : "";
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
         if (lblP) lblP.textContent = "完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
@@ -1442,6 +1437,7 @@ async function handleImportFileList(mdFiles) {
         📚 生成 <strong style="color:var(--accent)">${totalQ}</strong> 题（理论 ${theoryN} · 实战 ${pracN}）· ${fileCount} 个文件<br>
         ${dupCount ? `⚠️ 有 ${dupCount} 个文件重复，已跳过` : ""}
         ${dupRows}
+        ${theoryWarn ? `<span style="color:#ffb84d">${theoryWarn}</span><br>` : ""}
         ${pracWarn ? `<span style="color:#ffb84d">${pracWarn}</span><br>` : ""}
         ⭐ 获得 ${gain} XP 奖励（累计导入 ${state.imports} 份资料）`;
     } else {
@@ -3541,8 +3537,8 @@ async function reGenerateQuestions(dirId) {
 async function showLibrary() {
   const dirs = await refreshDirs();
   const cards = dirs.map((d) => {
-    const theoryOn = d.theoryCount ? "startDirExam('" + d.id + "', 'theory')" : "examNeeded('" + d.id + "', 'theory')";
-    const practicalOn = d.practicalCount ? "startDirExam('" + d.id + "', 'practical')" : "examNeeded('" + d.id + "', 'practical')";
+    const theoryReady = d.theoryCount >= 8;   // 理论考核需 ≥8 道（不足置灰）
+    const practicalReady = d.practicalCount >= 5;   // 实战考核需 ≥5 道（不足置灰）
     return `
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
@@ -3555,13 +3551,17 @@ async function showLibrary() {
           <div style="font-size:12px;color:var(--text-2);margin-top:6px;font-family:var(--mono)">
             ${d.fileCount} 个文件 · ${d.quizCount} 题（理论 ${d.theoryCount} · 实战 ${d.practicalCount} · 面试 ${d.interviewCount}）
           </div>
-          ${!d.theoryCount ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题缺失（LLM 生成未完成）——点「🤖 补出题」补齐后即可考核</div>` : ""}
+          ${!theoryReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题不足（${d.theoryCount}/8）——点「🤖 补出题」补齐后即可考核</div>` : ""}
           <div style="font-size:11px;color:var(--text-2);margin-top:3px">${d.createdAt ? d.createdAt.slice(0, 16).replace("T", " ") : ""}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <button class="exam-btn primary" onclick="${theoryOn}">📘 理论考核</button>
-          ${!d.theoryCount ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
-          <button class="exam-btn" onclick="${practicalOn}">🛠️ 实战考核</button>
+          ${theoryReady
+            ? `<button class="exam-btn primary" onclick="startDirExam('${d.id}', 'theory')">📘 理论考核</button>`
+            : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="理论题不足 8 道，先补出题或重新导入">📘 理论考核</button>`}
+          ${!theoryReady ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
+          ${practicalReady
+            ? `<button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')">🛠️ 实战考核</button>`
+            : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="实战题不足 5 道，先补出题">🛠️ 实战考核</button>`}
           <button class="exam-btn ghost" onclick="showDirDetail('${d.id}')">📁 管理</button>
           <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="deleteDir('${d.id}')">🗑️</button>
         </div>
