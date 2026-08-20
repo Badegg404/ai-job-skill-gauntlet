@@ -216,8 +216,8 @@ test("buildImportPrompt 含能力维度白名单 + 教学法", () => {
   const p = raw("buildImportPrompt('课程', '概念', '章节', '难点', '')");
   assert.ok(p.includes("提示词工程"), "应含能力维度白名单");
   assert.ok(p.includes("费曼技巧"), "应含教学法");
-  assert.ok(p.includes("18 道题"), "应含出题数量（导入生成 18 道：理论 10 + 实战 8）");
-  assert.ok(p.includes("实战 8"), "实战题 8 道备选池（避免考核重复）");
+  assert.ok(p.includes("20 道题"), "应含出题数量（导入生成 20 道：理论 10 + 实战 10）");
+  assert.ok(p.includes("实战 10"), "实战题 10 道备选池（避免考核重复）");
   assert.ok(p.includes("出题专家"), "导入出题应设角色");
   assert.ok(!p.includes("面试维度"), "导入出题不应再生成面试题（面试题由面试考核按岗位动态生成）");
 });
@@ -414,11 +414,11 @@ test("llmPickQuestions 提示词区分章节与综合考核", () => {
   assert.ok(src.includes("综合考核"), "综合场景提示词");
   assert.ok(src.includes("scope"), "应有场景参数");
 });
-test("综合考核题量翻倍于章节（30:16 vs 15:8）", () => {
+test("综合考核题量翻倍于章节（30:10 vs 15:5）", () => {
   const se = raw("startExam.toString()");
   const sd = raw("startDirExam.toString()");
-  assert.ok(se.includes("30 : 16"), "综合考核理论30/实战16");
-  assert.ok(sd.includes("15 : 8"), "章节考核理论15/实战8");
+  assert.ok(se.includes("30 : 10"), "综合考核理论30/实战10");
+  assert.ok(sd.includes("15 : 5"), "章节考核理论15/实战5");
   assert.ok(se.includes('"cross"'), "综合考核传 cross 场景");
   assert.ok(sd.includes('"chapter"'), "章节考核传 chapter 场景");
 });
