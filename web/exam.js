@@ -1013,7 +1013,8 @@ function setImportProgress(pct, icon, text, detail) {
       <div class="imp-pct">${Math.round(pct)}%</div>
     </div>
     <div class="imp-track"><div class="imp-fill" style="width:${Math.round(pct)}%"></div></div>
-    <div class="imp-tip" style="margin-top:10px;font-size:12px;color:var(--text-2);text-align:center;min-height:18px"></div>`;
+    <div class="imp-parts"></div>
+    <div class="imp-tips-box"><div class="imp-tip"></div></div>`;
 }
 
 async function llmExamQuestions(courses, mode, count = 4) {
@@ -1121,15 +1122,19 @@ async function handleImportFileList(mdFiles) {
       let impPct = 10;
       let stepTicks = 0;
       const tips = [
-        "🧩 正在生成理论题：概念辨析 · 判断 · 填空",
-        "💻 正在生成实战题：代码作用 · 输出预测 · Bug 修复",
+        "🧩 理论题：概念辨析 · 判断 · 填空",
+        "💻 实战题：代码作用 · 输出预测 · Bug 修复",
+        "⚡ 理论 + 实战并行生成，导入更快",
+        "📚 理论题基于概念，实战题必须引用真实代码",
         "📚 生成的全部题目会去重后存入本章题库",
         "💡 提示：考核连续答对有连击加成，XP 更多",
         "💡 提示：答错的题自动进错题本，之后会间隔重考",
         "💡 提示：完成 6 步引导即可解锁完整能力画像",
-        "💡 提示：综合考核聚合所有章节题库，题量翻倍",
+        "💡 提示：章节考核聚焦单章，综合考核聚合全部章节",
+        "💡 提示：综合考核题量是章节的 2 倍",
         "💡 提示：支持 AI 面试官仿真面试，会严格追问",
-        "💡 提示：能力评估页可查看 10 维能力雷达图",
+        "💡 提示：能力雷达图按 10 个维度评估，快速定位短板",
+        "💡 提示：每次导入都会按岗位提炼面试参考题",
       ];
       let tipIdx = 0;
       let tipTicks = 0;
@@ -1151,35 +1156,53 @@ async function handleImportFileList(mdFiles) {
         }
       }, 600);
       try {
-        // 单轮生成（26 道：理论 16 + 实战 10，全部挂进本目录题库）——按章节目录存储题库
+        // 并行两次请求：理论 16 道 + 实战 10 道（同步开始、全部结束后进入下一环节；重复由 seenTxt 去重兜底）
         // 注：「题库 = 考核 × 2 考两次不重复」仅对章节考核成立（8×2=16）；综合考核单目录 16 道会被抽满，需导入 ≥2 个目录聚合才够 2 次量
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
-        let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
-        // 拆两次请求：理论 16 道 + 实战 10 道（避免一次 26 道超长截断；重复由 seenTxt 去重兜底）
         const genParts = [
-          { key: "theory", label: "LLM 生成理论题（16 道）" },
-          { key: "practical", label: "LLM 生成实战题（10 道）" },
+          { key: "theory", label: "理论 16 道", icon: "📘", count: 16 },
+          { key: "practical", label: "实战 10 道", icon: "🛠️", count: 10 },
         ];
-        for (const gp of genParts) {
-          const stTitle = $("#import-status .imp-stage-text");
-          if (stTitle) stTitle.textContent = gp.label;
-          const llmQ = await browserLLMGenerate(data.course, payload, gp.key);
-          if (llmQ && llmQ.length) {
-            const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
-            for (const q of llmQ) {
-              if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
-              q.id = nid++;
-              q.source = "llm";
-              if (!q.dimension) q.dimension = inferDimension(q);
-              q.interview = !!q.interview;
-              if (q.type === "essay" && !q.followUps) q.followUps = [];
-              normalizeLLMQuestion(q);
-              data.course.quiz.push(q);
-              seenTxt.add((q.question || "") + "|" + q.type);
-              llmMade++;
-            }
-          }
+        const partsBox = $("#import-status .imp-parts");
+        if (partsBox) {
+          partsBox.innerHTML = genParts.map((gp) => `
+            <div class="imp-part" data-part="${gp.key}">
+              <span class="imp-part-icon">${gp.icon}</span>
+              <span class="imp-part-label">${gp.label}</span>
+              <span class="imp-part-state">⏳ 生成中…</span>
+            </div>`).join("");
         }
+        const results = await Promise.allSettled(
+          genParts.map((gp) => browserLLMGenerate(data.course, payload, gp.key))
+        );
+        // 任一请求失败或未返回题目 → 整体导入失败（由 catch 回滚目录）
+        const badIdx = results.findIndex((r) => r.status !== "fulfilled" || !r.value || !r.value.length);
+        if (badIdx >= 0) {
+          const bad = results[badIdx];
+          const reason = bad.status === "rejected" ? ((bad.reason || {}).message || "请求失败") : "未返回有效题目";
+          throw new Error("LLM 生成失败（" + genParts[badIdx].label + "）：" + reason);
+        }
+        let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
+        const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
+        genParts.forEach((gp, i) => {
+          const stEl = partsBox ? partsBox.querySelector(".imp-part[data-part=\" + gp.key + \"] .imp-part-state") : null;
+          const r = results[i];
+          let added = 0;
+          for (const q of r.value) {
+            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
+            q.id = nid++;
+            q.source = "llm";
+            if (!q.dimension) q.dimension = inferDimension(q);
+            q.interview = !!q.interview;
+            if (q.type === "essay" && !q.followUps) q.followUps = [];
+            normalizeLLMQuestion(q);
+            data.course.quiz.push(q);
+            seenTxt.add((q.question || "") + "|" + q.type);
+            llmMade++;
+            added++;
+          }
+          if (stEl) stEl.textContent = "✅ 完成 " + added + " 道";
+        });
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
         if (!llmMade) {
           clearInterval(pTimer);

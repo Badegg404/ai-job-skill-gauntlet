@@ -1074,6 +1074,39 @@ body::after {
   margin: -16px 0 14px;
   letter-spacing: 0.5px;
 }
+.imp-parts {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.imp-part {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  font-size: 12.5px;
+}
+.imp-part-icon { font-size: 15px; }
+.imp-part-label { font-weight: 700; color: var(--text-0); }
+.imp-part-state { margin-left: auto; font-size: 11.5px; color: var(--text-2); font-family: var(--mono); }
+.imp-part[data-part="theory"] .imp-part-icon { }
+.imp-part[data-part="practical"] .imp-part-icon { }
+.imp-tips-box {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+}
+.imp-tip {
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
+  min-height: 18px;
+  opacity: 0.85;
+}
 .exam-feedback-btn {
   padding: 4px 10px;
   font-size: 11px;
