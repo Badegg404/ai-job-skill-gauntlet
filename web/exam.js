@@ -443,23 +443,26 @@ function render(view, html) {
   if (typeof view === "function") view();
 }
 
-function goHome() {
+async function goHome() {
   const courseTitle = COURSE ? COURSE.title : "加载中…";
-  const quizCount = COURSE ? (COURSE.quiz || []).length : 0;
-  const isEmpty = quizCount === 0;
+  await refreshDirs();   // 题库按目录存储：以目录聚合判断（脱离 course.json 单课程镜像）
+  const quizCount = (DIRS || []).reduce((s, d) => s + (d.quizCount || 0), 0);
+  const isEmpty = !(DIRS || []).length || quizCount === 0;
   const assess = baseLevelAssessment();
   const profilePct = abilityProfilePct();
   const profileKeys = Object.keys(profilePct);
+  const needLLM = !LLM_KEY;   // LLM 配置是考核前提，未配置直接灰卡
   const modeCards = [
-    { icon: "📘", title: "理论考核", desc: "跨章节综合 · 概念/原理/判断等客观知识题", tag: "综合", onClick: "startExam('theory')", disabled: isEmpty },
-    { icon: "🛠️", title: "实战考核", desc: "跨章节综合 · 代码实战客观题（代码作用/输出预测/Bug 修复）", tag: "综合", onClick: "startExam('practical')", disabled: isEmpty },
-    { icon: "💼", title: "面试考核", desc: "AI 面试官仿真对话，按岗位技能严格追问", tag: "需 LLM", onClick: "startInterview()", disabled: isEmpty },
+    { icon: "📘", title: "理论考核", desc: "跨章节综合 · 概念/原理/判断等客观知识题", tag: "需 LLM", onClick: "startExam('theory')", disabled: isEmpty || needLLM },
+    { icon: "🛠️", title: "实战考核", desc: "跨章节综合 · 代码实战客观题（代码作用/输出预测/Bug 修复）", tag: "需 LLM", onClick: "startExam('practical')", disabled: isEmpty || needLLM },
+    { icon: "💼", title: "面试考核", desc: "AI 面试官仿真对话，按岗位技能严格追问", tag: "需 LLM", onClick: "startInterview()", disabled: isEmpty || needLLM },
   ];
   const cards = modeCards.map((m) => `
     <div class="mode-card ${m.disabled ? "disabled" : ""}" ${m.disabled ? "" : `onclick="${m.onClick}"`}>
       <div class="mc-icon">${m.icon}</div>
       <div class="mc-title">${m.title}</div>
       <div class="mc-desc">${m.desc}</div>
+      <div class="mc-tag">${m.tag}</div>
     </div>`).join("");
 
   const emptyState = isEmpty ? `
@@ -1311,6 +1314,19 @@ function renderJobSelect() {
 }
 
 function startJobInterview(jobId) {
+  // 防御性检查：面试强制要求 LLM（与 startInterview 一致，防未来新增入口绕过）
+  if (!LLM_KEY) {
+    showModal({
+      icon: "🤖",
+      title: "面试考核需要 LLM",
+      text: "面试考核由 AI 面试官动态出题、追问并评分，需要先配置 LLM API Key。你可以在设置中填写（支持 DeepSeek 官方或中转站），Key 仅保存在本机浏览器。",
+      actions: [
+        { label: "⚙️ 去设置", primary: true, onClick: () => showSettings() },
+        { label: "先不了", onClick: () => {} },
+      ],
+    });
+    return;
+  }
   const baseJob = JOB_KNOWLEDGE.find((j) => j.id === jobId) || JOB_KNOWLEDGE[0];
   // 浅拷贝：合并用户从资料提炼的「岗位通用面试题」，作为额外参考弹药（不污染静态知识库）
   const extra = (state.jobExtraQuestions || {})[baseJob.name] || [];
