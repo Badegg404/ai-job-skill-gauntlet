@@ -1254,7 +1254,7 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(10, "🤖", "LLM 正在生成题目（分两次）", "理论 16 + 实战 10 · 浏览器直连 · Key 不出浏览器");
+      setImportProgress(10, "🤖", "LLM 正在生成题目", "理论 + 实战并行 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（10→20→…→90），每 6 tick（约 3.6 秒）跳一档，匹配生成时长
       let impPct = 10;
       let stepTicks = 0;
