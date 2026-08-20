@@ -1086,7 +1086,7 @@ async function handleImportFileList(mdFiles) {
     const payload = [];
     for (let i = 0; i < mdFiles.length; i++) {
       const f = mdFiles[i];
-      setImportProgress(5 + ((i + 1) / mdFiles.length) * 25, "📄", `读取文件 ${i + 1}/${mdFiles.length}`, f.name);
+      setImportProgress(5 + ((i + 1) / mdFiles.length) * 5, "📄", `读取文件 ${i + 1}/${mdFiles.length}`, f.name);
       const md = await f.text();
       const relPath = f._relPath || f.webkitRelativePath || f.name;
       payload.push({ filename: relPath, md, kind: fileKind(relPath) });
@@ -1094,7 +1094,7 @@ async function handleImportFileList(mdFiles) {
 
     // 批量提交（统一走 import-batch：一次导入 = 一个章节目录）
     const reqBody = { uid: UID };
-    setImportProgress(35, "🧠", "解析资料中", "章节 / 概念 / 难点提取");
+    setImportProgress(10, "🧠", "解析资料中", "章节 / 概念 / 难点提取");
     const res = await fetch("/api/import-batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1106,9 +1106,9 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(40, "🤖", "LLM 正在生成题目（两轮）", "每轮约 18 道 · 浏览器直连 · Key 不出浏览器");
+      setImportProgress(10, "🤖", "LLM 正在生成题目（两轮）", "每轮约 18 道 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（40→50→…→90），每 12 tick（约 7 秒）跳一档，匹配两轮生成时长
-      let impPct = 40;
+      let impPct = 10;
       let stepTicks = 0;
       const tips = [
         "🧩 正在生成理论题：概念辨析 · 判断 · 填空",
@@ -1125,7 +1125,7 @@ async function handleImportFileList(mdFiles) {
       let tipTicks = 0;
       const pTimer = setInterval(() => {
         stepTicks++;
-        if (stepTicks % 12 === 0 && impPct < 90) impPct += 10;
+        if (stepTicks % 6 === 0 && impPct < 90) impPct += 10;
         const fill = $("#import-status .imp-fill");
         const pctEl = $("#import-status .imp-pct");
         if (fill) fill.style.width = impPct + "%";
