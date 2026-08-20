@@ -1163,6 +1163,21 @@ async function handleImportFileList(mdFiles) {
             llmMade++;
           }
         }
+        // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
+        if (!llmMade) {
+          clearInterval(pTimer);
+          // 回滚：删除刚创建的目录，避免留下只有引擎题、无法考核的残缺目录
+          if (data.dir && data.dir.id) {
+            await fetch("/api/dir-delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uid: UID, id: data.dir.id }),
+            }).catch(() => {});
+          }
+          status.className = "parse-status err";
+          status.innerHTML = "⚠️ LLM 出题失败（未返回有效题目），已回滚本次导入。请检查 API Key 与网络后重试。";
+          return;
+        }
         await fetch("/api/course-save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1184,8 +1199,15 @@ async function handleImportFileList(mdFiles) {
         clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
+        if (data.dir && data.dir.id) {
+          await fetch("/api/dir-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ uid: UID, id: data.dir.id }),
+          }).catch(() => {});
+        }
         status.className = "parse-status err";
-        status.innerHTML = `⚠️ LLM 出题失败（${esc(e.message)}），本目录暂无考核题`;
+        status.innerHTML = `⚠️ LLM 出题失败（${esc(e.message)}），已回滚本次导入`;
       }
     }
 
@@ -3165,6 +3187,20 @@ async function refreshDirs() {
   return DIRS;
 }
 
+/* 目录无理论/实战题时点击考核按钮的引导（不置灰，点击给说明 + 去配置 Key） */
+function examNeeded(dirId, mode) {
+  const isTheory = mode === "theory";
+  showModal({
+    icon: isTheory ? "📘" : "🛠️",
+    title: "该目录暂无" + (isTheory ? "理论" : "实战") + "题",
+    text: (isTheory ? "理论题（选择/判断/填空）" : "实战题（代码客观题）") + "由 LLM 基于课程内容生成，当前目录还没有。请先配置 API Key，再点「🤖 补出题」生成。",
+    actions: [
+      { label: "⚙️ 去配置 Key", primary: true, onClick: () => showSettings() },
+      { label: "知道了", onClick: () => {} },
+    ],
+  });
+}
+
 /* 重新用 LLM 补出客观题（针对导入时 LLM 未出题、导致理论考核灰的目录） */
 async function reGenerateQuestions(dirId) {
   if (!LLM_KEY) {
@@ -3223,7 +3259,10 @@ async function reGenerateQuestions(dirId) {
 /* 目录列表页：每个目录右侧理论/实战考核按钮 + 改名 + 删目录 + 进入详情 */
 async function showLibrary() {
   const dirs = await refreshDirs();
-  const cards = dirs.map((d) => `
+  const cards = dirs.map((d) => {
+    const theoryOn = d.theoryCount ? "startDirExam('" + d.id + "', 'theory')" : "examNeeded('" + d.id + "', 'theory')";
+    const practicalOn = d.practicalCount ? "startDirExam('" + d.id + "', 'practical')" : "examNeeded('" + d.id + "', 'practical')";
+    return `
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
@@ -3238,14 +3277,15 @@ async function showLibrary() {
           <div style="font-size:11px;color:var(--text-2);margin-top:3px">${d.createdAt ? d.createdAt.slice(0, 16).replace("T", " ") : ""}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <button class="exam-btn primary" onclick="startDirExam('${d.id}', 'theory')" ${d.theoryCount ? "" : "disabled"}>📘 理论考核</button>
+          <button class="exam-btn primary" onclick="${theoryOn}">📘 理论考核</button>
           ${!d.theoryCount ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
-          <button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')" ${d.practicalCount ? "" : "disabled"}>🛠️ 实战考核</button>
+          <button class="exam-btn" onclick="${practicalOn}">🛠️ 实战考核</button>
           <button class="exam-btn ghost" onclick="showDirDetail('${d.id}')">📁 管理</button>
           <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="deleteDir('${d.id}')">🗑️</button>
         </div>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
