@@ -1106,9 +1106,10 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(42, "🤖", "LLM 正在生成题目（两轮）", "每轮约 18 道 · 浏览器直连 · Key 不出浏览器");
-      // 伪进度：慢速平滑推进（>60% 后减速），匹配两轮生成的真实时长，避免进度条快速跳到 88% 后干等
-      let impPct = 42;
+      setImportProgress(40, "🤖", "LLM 正在生成题目（两轮）", "每轮约 18 道 · 浏览器直连 · Key 不出浏览器");
+      // 伪进度：按 10% 一档跳（40→50→…→90），每 12 tick（约 7 秒）跳一档，匹配两轮生成时长
+      let impPct = 40;
+      let stepTicks = 0;
       const tips = [
         "🧩 正在生成理论题：概念辨析 · 判断 · 填空",
         "💻 正在生成实战题：代码作用 · 输出预测 · Bug 修复",
@@ -1123,11 +1124,12 @@ async function handleImportFileList(mdFiles) {
       let tipIdx = 0;
       let tipTicks = 0;
       const pTimer = setInterval(() => {
-        impPct = Math.min(88, impPct + (impPct > 60 ? 0.5 : 1));
+        stepTicks++;
+        if (stepTicks % 12 === 0 && impPct < 90) impPct += 10;
         const fill = $("#import-status .imp-fill");
         const pctEl = $("#import-status .imp-pct");
         if (fill) fill.style.width = impPct + "%";
-        if (pctEl) pctEl.textContent = Math.floor(impPct) + "%";
+        if (pctEl) pctEl.textContent = impPct + "%";
         // 动态轮换提示文案：每 6 个 tick（约 3.6 秒）换一条，保证用户能看清
         tipTicks++;
         if (tipTicks % 6 === 0) {
