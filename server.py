@@ -169,6 +169,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
             self._handle_dir_delete()
         elif parsed.path == "/api/dir-file-add":
             self._handle_dir_file_add()
+        elif parsed.path == "/api/import-debug":
+            self._handle_import_debug()
         elif parsed.path == "/api/dir-file-delete":
             self._handle_dir_file_delete()
         elif parsed.path == "/api/reset-all":
@@ -470,6 +472,31 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     pass
         self._send_json({"ok": True, "title": dd["title"]})
+
+    def _handle_import_debug(self):
+        """导入诊断日志：前端上报 LLM 生成失败详情，落盘到用户目录，供排查导入问题。"""
+        try:
+            data = json.loads(self._read_body().decode("utf-8"))
+        except Exception:
+            self._send_json({"error": "请求体必须是 JSON"}, 400)
+            return
+        uid = str(data.get("uid") or "").strip()
+        if not safe_uid(uid):
+            self._send_json({"error": "非法 uid"}, 400)
+            return
+        try:
+            d = user_dir(uid)
+            d.mkdir(parents=True, exist_ok=True)
+            with open(d / "import-debug.log", "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "at": datetime.now().isoformat(),
+                    "tag": data.get("tag"),
+                    "payload": data.get("payload"),
+                }, ensure_ascii=False) + chr(10))
+        except Exception:
+            pass
+        self._send_json({"ok": True})
+
 
     def _handle_dir_delete(self):
         try:

@@ -895,6 +895,18 @@ async function handleImportFolder(files) {
   await handleImportFileList(textList);
 }
 
+async function reportDebug(tag, payload) {
+  // 导入诊断：失败详情上报服务端落盘（~/.exam-center/users/{uid}/import-debug.log），供排查
+  try {
+    await fetch("/api/import-debug", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: UID || "", tag, payload }),
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
 async function browserLLMGenerate(course, part) {
   // part: "theory" 只生成理论 16 道 | "practical" 只生成实战 10 道 | 缺省全量（26 道，兼容旧调用）
@@ -925,51 +937,66 @@ async function browserLLMGenerate(course, part) {
     ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt())
     : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
-  const res = await fetch(base + "/chat/completions", {
+  reportDebug("llm-start", { part, model, base, maxTokens, promptLen: prompt.length });
+  const buildBody = (withFormat) => JSON.stringify({
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.8,
+    max_tokens: maxTokens,
+    ...(withFormat ? { response_format: { type: "json_object" } } : {}),
+  });
+  const doFetch = (withFormat) => fetch(base + "/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + LLM_KEY,
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.8,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-    }),
+    body: buildBody(withFormat),
   });
-
-  if (!res.ok) {
-    // 中转站可能不支持 response_format，重试一次去掉该字段
-    if (res.status === 400) {
-      const res2 = await fetch(base + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + LLM_KEY,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.8,
-          max_tokens: maxTokens,
-        }),
-      });
-      if (res2.ok) return extractLLMQuestions(await res2.json());
+  // 429/5xx/网络错误自动重试（最多 3 次，间隔递增），避免偶发限流导致整轮失败
+  let res = null;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      res = await doFetch(true);
+      if (res.ok) break;
+      if (res.status === 429 || res.status >= 500) {
+        lastErr = new Error(`API 返回 ${res.status}（第 ${attempt} 次）`);
+        reportDebug("llm-retry", { part, attempt, status: res.status });
+        await new Promise((r) => setTimeout(r, 1200 * attempt));
+        continue;
+      }
+      break;
+    } catch (e) {
+      lastErr = e;
+      reportDebug("llm-net-retry", { part, attempt, err: String(e) });
+      if (attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 1200 * attempt));
     }
-    const errTxt = await res.text().catch(() => "");
-    throw new Error(`API 返回 ${res.status}${errTxt ? "：" + errTxt.slice(0, 120) : ""}`);
+  }
+  if (!res || !res.ok) {
+    // 400：中转站可能不支持 response_format，重试一次去掉该字段
+    if (res && res.status === 400) {
+      try {
+        const res2 = await doFetch(false);
+        if (res2.ok) return extractLLMQuestions(await res2.json());
+        lastErr = new Error(`API 返回 ${res2.status}${(await res2.text().catch(() => "")).slice(0, 120)}`);
+      } catch (e2) { lastErr = e2; }
+    } else {
+      const errTxt = res ? (await res.text().catch(() => "")) : "";
+      lastErr = new Error(`API 返回 ${res ? res.status : "无响应"}${errTxt ? "：" + errTxt.slice(0, 120) : ""}`);
+    }
+    reportDebug("llm-fail", { part, msg: String((lastErr && lastErr.message) || lastErr) });
+    throw lastErr;
   }
 
   const data = await res.json();
-  return extractLLMQuestions(data);
+  const qs = extractLLMQuestions(data);
+  reportDebug("llm-ok", { part, count: qs.length, rawLen: String(JSON.stringify(data)).length });
+  return qs;
 }
 
 /* 从导入资料提炼「岗位通用面试题」：LLM 判断资料最贴近的岗位 + 生成 3 道场景面试题（扩充面试参考弹药） */
@@ -1269,6 +1296,7 @@ async function handleImportFileList(mdFiles) {
         clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
+        reportDebug("import-fail", { msg: String((e && e.message) || e) });
         // 失败不再自动删除目录：保留后端已解析的资料与文件清单，用户可重试、补出题或手动删除
         const msg = String((e && e.message) || e);
         const reason = /failed to fetch|fetch failed|network|net::/i.test(msg)
