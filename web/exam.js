@@ -941,6 +941,7 @@ async function llmJSON(opts) {
   const temperature = opts.temperature || 0.8;    // 评分等场景可降低温度
   let curPrompt = prompt + "\n\n" + formatHint;
   let lastErr = null;
+  let lastNonEmpty = null;   // 最后一次非空结果：数量不足且重试耗尽时「有多少收多少」
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     reportDebug("llm-start", { part, attempt, model, base, promptLen: curPrompt.length });
     const doFetch = (withFormat) => fetch(base + "/chat/completions", {
@@ -984,6 +985,7 @@ async function llmJSON(opts) {
             const data2 = await res2.json();
             const qs2 = extractLLMQuestions(data2);
             reportDebug("llm-ok", { part, attempt, count: qs2.length });
+            if (qs2.length) lastNonEmpty = qs2;
             if (qs2.length >= minCount) return qs2;
             if (qs2.length >= minAccept && attempt >= 2) return qs2;
             lastErr = new Error("解析出 " + qs2.length + " 题（要求 " + minCount + "）");
@@ -1035,6 +1037,7 @@ async function llmJSON(opts) {
       continue;
     }
     const qs = extractLLMQuestions(data);
+    if (qs.length) lastNonEmpty = qs;
     reportDebug("llm-ok", {
       part, attempt, count: qs.length, rawLen: rawContent.length,
       // 解析出 0 题时把 LLM 原始内容前 1500 字落盘，精确定位格式/结构问题
@@ -1046,6 +1049,11 @@ async function llmJSON(opts) {
     lastErr = new Error("解析出 " + qs.length + " 题（要求 " + minCount + "）");
     // Agently 式修正：把校验错误反馈给 LLM，要求重新输出
     curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】你上一次的输出未能通过程序校验：" + lastErr.message + "。请严格按【输出格式要求】重新输出完整 JSON（不要 markdown 代码块，不要多余文字），数量必须达标。";
+  }
+  // 宁缺毋滥：数量不足但出过题 → 有多少收多少（主流程累积补足兜底）；从未出题（空响应/格式全坏）→ 真不可用，throw
+  if (lastNonEmpty) {
+    reportDebug("llm-partial-final", { part, count: lastNonEmpty.length, want: minCount });
+    return lastNonEmpty;
   }
   reportDebug("llm-fail", { part, msg: String((lastErr && lastErr.message) || lastErr) });
   throw lastErr;
