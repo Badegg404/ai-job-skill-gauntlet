@@ -985,7 +985,7 @@ async function llmExamQuestions(courses, mode, count = 4) {
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: SYSTEM.examiner }, { role: "user", content: prompt }],
-      temperature: 0.8, max_tokens: 1500, response_format: { type: "json_object" },
+      temperature: 0.8, max_tokens: 3000, response_format: { type: "json_object" },
     }),
   });
   if (!res.ok) {
@@ -993,7 +993,7 @@ async function llmExamQuestions(courses, mode, count = 4) {
       const res2 = await fetch(base + "/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM.examiner }, { role: "user", content: prompt }], temperature: 0.8, max_tokens: 1500 }),
+        body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM.examiner }, { role: "user", content: prompt }], temperature: 0.8, max_tokens: 3000 }),
       });
       if (res2.ok) return extractLLMQuestions(await res2.json());
     }
@@ -1981,7 +1981,7 @@ function startExam(mode) {
       loading.setStatus("LLM 动态出题中");
       loading.setProgress(75);
       try {
-        const dyn = await llmExamQuestions(courses, mode, 6);
+        const dyn = await llmExamQuestions(courses, mode, 8);
         if (seq !== examSeq) return;
         filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
       } catch (e) { /* 忽略，继续用题库题 */ }
@@ -3395,7 +3395,7 @@ async function startDirExam(dirId, mode) {
     loading.setStatus("LLM 动态出题中");
     loading.setProgress(75);
     try {
-      const dyn = await llmExamQuestions([dd.course], mode, 5);
+      const dyn = await llmExamQuestions([dd.course], mode, 6);
       if (seq !== examSeq) return;
       filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
     } catch (e) { /* 忽略 */ }

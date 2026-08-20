@@ -216,7 +216,8 @@ test("buildImportPrompt 含能力维度白名单 + 教学法", () => {
   const p = raw("buildImportPrompt('课程', '概念', '章节', '难点', '')");
   assert.ok(p.includes("提示词工程"), "应含能力维度白名单");
   assert.ok(p.includes("费曼技巧"), "应含教学法");
-  assert.ok(p.includes("12 道题"), "应含出题数量");
+  assert.ok(p.includes("18 道题"), "应含出题数量（导入生成 18 道：理论 10 + 实战 8）");
+  assert.ok(p.includes("实战 8"), "实战题 8 道备选池（避免考核重复）");
   assert.ok(p.includes("出题专家"), "导入出题应设角色");
   assert.ok(!p.includes("面试维度"), "导入出题不应再生成面试题（面试题由面试考核按岗位动态生成）");
 });
