@@ -933,6 +933,7 @@ async function llmJSON(opts) {
   const prompt = opts.prompt || "";
   const formatHint = opts.formatHint || JSON_FORMAT_HINT;
   const minCount = opts.minCount || 0;
+  const minAccept = opts.minAccept || minCount;   // 接受底线：不足 minCount 但 >= minAccept 时部分接受（宁缺毋滥：收下已有的，不空转重试）
   const maxRetries = opts.maxRetries || 3;
   const part = opts.part || "all";
   const expect = opts.expect || "questions";
@@ -984,6 +985,7 @@ async function llmJSON(opts) {
             const qs2 = extractLLMQuestions(data2);
             reportDebug("llm-ok", { part, attempt, count: qs2.length });
             if (qs2.length >= minCount) return qs2;
+            if (qs2.length >= minAccept && attempt >= 2) return qs2;
             lastErr = new Error("解析出 " + qs2.length + " 题（要求 " + minCount + "）");
             curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】上一次输出未通过程序校验：" + lastErr.message + "。常见问题：markdown 代码块包裹 JSON、字段名不符、少出题。请严格按【输出格式要求】重新输出完整 JSON（不要代码块，不要多余文字），数量必须达标。";
             continue;
@@ -1039,6 +1041,8 @@ async function llmJSON(opts) {
       ...(qs.length === 0 ? { contentHead: rawContent.slice(0, 1500) } : {}),
     });
     if (qs.length >= minCount) return qs;
+    // 宁缺毋滥：不足 minCount 但已达接受底线（且已重试过）→ 部分接受收下已有题，不再空转（避免连续请求触发服务限流）
+    if (qs.length >= minAccept && attempt >= 2) { reportDebug("llm-partial", { part, count: qs.length, want: minCount }); return qs; }
     lastErr = new Error("解析出 " + qs.length + " 题（要求 " + minCount + "）");
     // Agently 式修正：把校验错误反馈给 LLM，要求重新输出
     curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】你上一次的输出未能通过程序校验：" + lastErr.message + "。请严格按【输出格式要求】重新输出完整 JSON（不要 markdown 代码块，不要多余文字），数量必须达标。";
@@ -1082,12 +1086,15 @@ async function browserLLMGenerate(course, part) {
     : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
   // 实战硬校验仅在有代码文件时生效（纯笔记目录实战轮可返回空，不阻塞导入）
+  // 理论 minAccept 8（考核一轮需要 8 道）：LLM 给不足 16 但 ≥8 时部分接受（宁缺毋滥，不空转重试）
   const minCount = part === "theory" ? 16 : part === "practical" ? (hasCode ? 10 : 0) : (hasCode ? 26 : 16);
+  const minAccept = part === "theory" ? 8 : minCount;
   const qs = await llmJSON({
     system: SYSTEM.examiner,
     prompt,
     formatHint: JSON_FORMAT_HINT,
     minCount,
+    minAccept,
     part,
   });
   return qs;
@@ -1282,9 +1289,10 @@ async function handleImportFileList(mdFiles) {
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         // 纯笔记目录（无代码素材）：实战题无代码可引用，跳过实战硬校验（理论题仍必须生成）
         const hasCode = (data.course.materials || []).some((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)));
+        // 纯笔记目录不发实战请求（无代码素材，发了也白发还浪费请求；宁缺毋滥）
         const genParts = [
           { key: "theory", label: "生成理论题 ing..", icon: "📘" },
-          { key: "practical", label: "生成实战题 ing..", icon: "🛠️" },
+          ...(hasCode ? [{ key: "practical", label: "生成实战题 ing..", icon: "🛠️" }] : []),
         ];
         const partsBox = $("#import-status .imp-parts");
         if (partsBox) {
@@ -3444,8 +3452,8 @@ async function reGenerateQuestions(dirId) {
     }
     showToast("🤖 正在用 LLM 补出题（" + (needTheory ? "理论" : "") + (needTheory && needPrac ? " + " : "") + (needPrac ? "实战" : "") + "）…");
     let llmQ = [];
-    if (needTheory) llmQ = await browserLLMGenerate(course, "theory");
-    if (needPrac && (!llmQ || !llmQ.length)) llmQ = await browserLLMGenerate(course, "practical");
+    if (needTheory) llmQ = llmQ.concat(await browserLLMGenerate(course, "theory"));
+    if (needPrac) llmQ = llmQ.concat(await browserLLMGenerate(course, "practical"));
     if (!llmQ || !llmQ.length) {
       showToast("⚠️ LLM 未返回有效题目，请检查 Key 或稍后重试");
       return;
