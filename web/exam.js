@@ -916,6 +916,8 @@ async function browserLLMGenerate(course, payload, part) {
     .slice(0, 8)
     .map((m, i) => `[文件${i + 1}] ${m.file || m.path}（${m.lines || "?"} 行）\n${(m.preview || "").slice(0, 400)}`).join("\n\n");
 
+  // 分设 token：理论轮纯文字 4500 足够，实战轮带真实代码 7000（避免统一偏大浪费或偏小截断）
+  const maxTokens = part === "theory" ? 4500 : part === "practical" ? 7000 : 10000;
   const system = SYSTEM.examiner;
   const prompt = part === "theory"
     ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt())
@@ -936,7 +938,7 @@ async function browserLLMGenerate(course, payload, part) {
         { role: "user", content: prompt },
       ],
       temperature: 0.8,
-      max_tokens: 6000,
+      max_tokens: maxTokens,
       response_format: { type: "json_object" },
     }),
   });
@@ -957,7 +959,7 @@ async function browserLLMGenerate(course, payload, part) {
             { role: "user", content: prompt },
           ],
           temperature: 0.8,
-          max_tokens: 6000,
+          max_tokens: maxTokens,
         }),
       });
       if (res2.ok) return extractLLMQuestions(await res2.json());
@@ -1114,7 +1116,7 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(10, "🤖", "LLM 正在生成题目（一轮）", "约 26 道 · 浏览器直连 · Key 不出浏览器");
+      setImportProgress(10, "🤖", "LLM 正在生成题目（分两次）", "理论 16 + 实战 10 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（10→20→…→90），每 6 tick（约 3.6 秒）跳一档，匹配生成时长
       let impPct = 10;
       let stepTicks = 0;
