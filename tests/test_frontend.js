@@ -168,6 +168,35 @@ test("buildExamPrompt 理论模式含 JSON schema", () => {
   assert.ok(p.includes('"questions"'), "应含 JSON schema");
 });
 
+console.log("\n== 新人引导步骤判断 ==");
+test("guideStepDone('llm') 未配置 → false", () => {
+  assert.strictEqual(raw("guideStepDone('llm')"), false);
+});
+test("guideNextStepId 未配置 LLM 时推荐第一步是 llm", () => {
+  assert.strictEqual(raw("guideNextStepId()"), "llm");
+});
+test("配置 LLM 后 llm 完成，推荐下一步是 import", () => {
+  raw("LLM_KEY = 'sk-test-key'");
+  assert.strictEqual(raw("guideStepDone('llm')"), true);
+  assert.strictEqual(raw("guideNextStepId()"), "import");
+});
+test("引导条 HTML 含 4 个步骤节点", () => {
+  const html = raw("renderGuideBarHTML()");
+  assert.ok(html.includes("guide-bar"), "应含引导条容器");
+  assert.ok(html.includes("gs-llm") && html.includes("gs-import") && html.includes("gs-exam") && html.includes("gs-profile"), "应含 4 个步骤节点");
+});
+test("模拟导入+考核+画像后全部完成", () => {
+  raw("state.imports = 1; state.exams = 2; COURSE = { title: 't', quiz: [{ type: 'choice' }] }; state.abilityProfile = { '提示词工程': { sum: 80, count: 2, lastAt: Date.now() } };");
+  assert.strictEqual(raw("guideStepDone('import')"), true);
+  assert.strictEqual(raw("guideStepDone('exam')"), true);
+  assert.strictEqual(raw("guideStepDone('profile')"), true);
+  assert.strictEqual(raw("guideNextStepId()"), null);
+});
+test("全部完成后引导条显示完成态", () => {
+  const html = raw("renderGuideBarHTML()");
+  assert.ok(html.includes("gb-all-done"), "应显示全部完成态");
+});
+
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
 process.exit(failed > 0 ? 1 : 0);

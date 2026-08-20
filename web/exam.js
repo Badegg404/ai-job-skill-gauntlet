@@ -412,6 +412,7 @@ function goHome() {
       <div style="font-size:13px;color:var(--text-1)">💡 <strong style="color:var(--accent-2)">提示</strong>：本系统核心能力（出题、题目打标签、语义判分、岗位匹配）由 LLM 驱动，请先在「⚙️ 设置」中配置 API Key，否则无法开始考核。</div>
       <button class="exam-btn" style="padding:7px 16px;font-size:13px" onclick="showSettings()">⚙️ 去设置</button>
     </div>` : ""}
+    ${renderGuideBarHTML()}
     <div style="display:flex;gap:12px;margin-bottom:20px">
       <button class="exam-btn primary" onclick="showImportPanel()">📥 导入资料</button>
       <button class="exam-btn ghost" onclick="showLibrary()">🗂️ 资料目录</button>
@@ -3382,6 +3383,208 @@ function exportProfile() {
   showToast("✅ 已导出「AI岗位能力试炼报告.md」");
 }
 
+/* ============================================================
+ * 新人引导（Onboarding）
+ * 1) 首页常驻「快速开始」引导条：4 步流程 + 实时状态 + 推荐下一步
+ * 2) 首次使用自动播放高亮 Tour：全屏遮罩 + 目标高亮 + 步骤气泡
+ * ============================================================ */
+const GUIDE_KEY = "examCenter.onboarded";     // 是否看过引导 Tour
+let guideForceFull = false;                   // 引导条强制显示完整 4 步
+
+// 4 步流程（顺序即推荐顺序）
+const GUIDE_STEPS = [
+  { id: "llm", num: "①", icon: "⚙️", title: "配置 LLM", desc: "出题 / 判分 / 面试考核都由 LLM 驱动，先配置 API Key（支持 DeepSeek、阿里百炼等）", jump: showSettings, jumpLabel: "去配置" },
+  { id: "import", num: "②", icon: "📥", title: "导入学习资料", desc: "拖入笔记 / 代码 / 文档或文件夹，系统自动解析并生成 12 道考核题", jump: showImportPanel, jumpLabel: "去导入" },
+  { id: "exam", num: "③", icon: "🎯", title: "开始考核", desc: "理论（客观题）→ 实战（场景 + 代码）→ 面试（AI 面试官按岗位追问）", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去考核" },
+  { id: "profile", num: "④", icon: "🧬", title: "查看能力画像", desc: "10 维能力雷达 + 岗位匹配 + 等级称号，掌握强弱项并导出报告", jump: showAssessment, jumpLabel: "看画像" },
+];
+
+// 步骤完成判断（纯函数，可测试）
+function guideStepDone(id) {
+  if (id === "llm") return !!(LLM_KEY || "").trim();
+  if (id === "import") return (state.imports || 0) > 0 && !!(COURSE && COURSE.quiz && COURSE.quiz.length);
+  if (id === "exam") return (state.exams || 0) > 0;
+  if (id === "profile") return Object.keys(abilityProfilePct()).length > 0;
+  return false;
+}
+
+// 当前最该做的一步：按顺序第一个未完成；全部完成返回 null
+function guideNextStepId() {
+  for (const s of GUIDE_STEPS) if (!guideStepDone(s.id)) return s.id;
+  return null;
+}
+
+// 首页「快速开始」引导条 HTML
+function renderGuideBarHTML() {
+  if (!guideForceFull) {
+    const nextId = guideNextStepId();
+    if (!nextId) {
+      return `<div class="guide-bar gb-all-done" id="guide-bar">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap">
+          <span style="font-size:18px">🎉</span>
+          <div style="font-size:13.5px;color:var(--text-1)">恭喜！<strong style="color:var(--accent)">全部引导步骤已完成</strong>，你已经掌握完整流程。</div>
+        </div>
+        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="startGuideTour()">👀 新手引导演示</button>
+        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="__guideShowAll()">📋 查看完整流程</button>
+      </div>`;
+    }
+  }
+  const nextId = guideNextStepId();
+  const steps = GUIDE_STEPS.map((s) => {
+    const done = guideStepDone(s.id);
+    const isNext = s.id === nextId;
+    const cls = done ? "done" : (isNext ? "next" : "todo");
+    return `
+    <div class="guide-step ${cls}" id="gs-${s.id}">
+      <div class="gs-badge">${done ? "✅" : s.num}</div>
+      <div class="gs-body">
+        <div class="gs-title">${s.icon} ${esc(s.title)}</div>
+        <div class="gs-desc">${esc(s.desc)}</div>
+      </div>
+      <div class="gs-cta">${done
+        ? `<span class="gs-done-tag">✓ 已完成</span>`
+        : isNext
+          ? `<button class="exam-btn primary gs-go" onclick="__guideJump('${s.id}')">${esc(s.jumpLabel)} →</button>`
+          : `<span class="gs-lock">🔒 待完成</span>`}
+      </div>
+    </div>`;
+  }).join("");
+  return `<div class="guide-bar" id="guide-bar">
+    <div class="gb-head">
+      <div class="gb-title">🚀 快速开始 <span class="gb-sub">按顺序完成 4 步即可上手 · 已完成步骤自动打勾</span></div>
+      <button class="exam-btn ghost gb-replay" onclick="startGuideTour()">👀 新手引导演示</button>
+    </div>
+    <div class="gb-steps">${steps}</div>
+  </div>`;
+}
+
+function __guideShowAll() { guideForceFull = true; goHome(); }
+function __guideJump(id) {
+  const s = GUIDE_STEPS.find((x) => x.id === id);
+  if (s && s.jump) s.jump();
+}
+
+/* ---------- 高亮引导 Tour ---------- */
+const TOUR_STEPS = [
+  { icon: "🤖", title: "欢迎来到 AI 岗位能力试炼", text: "这是一套本地 AI 岗位面试能力评估系统：导入学习资料 → LLM 自动出题 → 理论 / 实战 / 面试三模式考核 → 10 维能力画像 + 岗位匹配。下面带你走一遍完整流程。", sel: null },
+  { icon: "⚙️", title: "第 1 步 · 配置 LLM", text: "出题、语义判分、岗位匹配都由 LLM 驱动。请先在「设置」中填入 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口），Key 仅保存在本机浏览器，不会上传服务器。", sel: 'button[onclick="showSettings()"]', jump: showSettings, jumpLabel: "现在去配置" },
+  { icon: "📥", title: "第 2 步 · 导入学习资料", text: "点击「导入资料」，拖入笔记、代码、文档或整个文件夹，系统自动解析并生成考核题（选择 / 判断 / 填空 + 实战场景题）。", sel: 'button[onclick="showImportPanel()"]', jump: showImportPanel, jumpLabel: "现在去导入" },
+  { icon: "🎯", title: "第 3 步 · 开始考核", text: "三种模式任选：📘 理论考核（客观题）、🛠️ 实战考核（场景决策 + 代码对比）、💼 面试考核（AI 面试官按岗位追问）。建议先完成理论 + 实战，再挑战面试。", sel: ".mode-grid", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去看看" },
+  { icon: "🧬", title: "第 4 步 · 查看能力画像", text: "完成考核后回到首页，可查看 10 维能力雷达图、岗位匹配度、等级称号，并导出评估报告。", sel: 'button[onclick="showAssessment()"]', jump: showAssessment, jumpLabel: "去看画像" },
+  { icon: "🚀", title: "全部完成 🎉", text: "首页顶部常驻「快速开始」引导条会实时标记你的进度并推荐下一步；随时可点「新手引导演示」重看本教程。祝你试炼顺利！", sel: null },
+];
+
+let tourStep = -1;
+let tourEls = null;          // { mask, hole, bubble }
+let tourScrollHandler = null;
+
+function startGuideTour() {
+  closeGuideTour();
+  localStorage.setItem(GUIDE_KEY, "1");
+  tourStep = 0;
+  const mask = document.createElement("div");
+  mask.className = "tour-mask";
+  mask.innerHTML = `<div class="tour-hole"></div><div class="tour-bubble"></div>`;
+  document.body.appendChild(mask);
+  tourEls = { mask, hole: mask.querySelector(".tour-hole"), bubble: mask.querySelector(".tour-bubble") };
+  // 点击高亮目标区域（穿透到按钮）→ 关闭 tour 并让按钮正常执行
+  mask.addEventListener("click", (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest(".tour-target")) closeGuideTour();
+  }, true);
+  tourScrollHandler = () => {
+    if (!tourEls) return;
+    const s = TOUR_STEPS[tourStep];
+    if (s && s.sel) { const el = $(s.sel); if (el) positionTour(el); }
+  };
+  window.addEventListener("scroll", tourScrollHandler, true);
+  window.addEventListener("resize", tourScrollHandler);
+  showTourStep(0);
+}
+
+function showTourStep(i) {
+  if (!tourEls) return;
+  const prev = TOUR_STEPS[tourStep];
+  if (prev && prev.sel) { const p = $(prev.sel); if (p) p.classList.remove("tour-target"); }
+  tourStep = i;
+  const s = TOUR_STEPS[i];
+  if (!s) { closeGuideTour(); return; }
+  tourEls.bubble.classList.remove("tb-center");
+  tourEls.bubble.style.transform = "none";
+  tourEls.bubble.innerHTML = `
+    <div class="tb-icon">${s.icon}</div>
+    <div class="tb-title">${esc(s.title)}</div>
+    <div class="tb-text">${esc(s.text)}</div>
+    <div class="tb-actions">
+      ${i > 0 ? `<button class="exam-btn ghost" onclick="__tourPrev()">← 上一步</button>` : ""}
+      ${s.jump ? `<button class="exam-btn primary" onclick="__tourJump()">${esc(s.jumpLabel)} →</button>` : ""}
+      ${i < TOUR_STEPS.length - 1 ? `<button class="exam-btn" onclick="__tourNext()">下一步 →</button>` : `<button class="exam-btn primary" onclick="__tourDone()">开始体验</button>`}
+      <button class="exam-btn ghost" style="border-color:var(--border)" onclick="__tourSkip()">跳过</button>
+    </div>`;
+  if (s.sel) {
+    const el = $(s.sel);
+    if (el) {
+      el.classList.add("tour-target");
+      try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { /* ignore */ }
+      setTimeout(() => { if (tourEls) positionTour(el); }, 420);
+    } else { centerTourBubble(); }
+  } else { centerTourBubble(); }
+}
+
+function centerTourBubble() {
+  if (!tourEls) return;
+  tourEls.hole.style.display = "none";
+  tourEls.bubble.classList.add("tb-center");
+  tourEls.bubble.style.left = "50%";
+  tourEls.bubble.style.top = "50%";
+  tourEls.bubble.style.transform = "translate(-50%, -50%)";
+}
+
+function positionTour(el) {
+  if (!tourEls) return;
+  const rect = el.getBoundingClientRect();
+  const hole = tourEls.hole, bubble = tourEls.bubble;
+  hole.style.display = "block";
+  hole.style.left = (rect.left - 4) + "px";
+  hole.style.top = (rect.top - 4) + "px";
+  hole.style.width = (rect.width + 8) + "px";
+  hole.style.height = (rect.height + 8) + "px";
+  const bw = 360, bh = bubble.offsetHeight || 200;
+  const left = Math.min(Math.max(rect.left + rect.width / 2 - bw / 2, 12), window.innerWidth - bw - 12);
+  let top, arrow;
+  if (rect.top - bh - 18 > 10) { top = rect.top - bh - 18; arrow = "down"; }
+  else if (rect.bottom + bh + 18 < window.innerHeight - 10) { top = rect.bottom + 18; arrow = "up"; }
+  else { top = 12; arrow = "up"; }
+  bubble.classList.remove("tb-arrow-up", "tb-arrow-down");
+  bubble.classList.add(arrow === "up" ? "tb-arrow-up" : "tb-arrow-down");
+  bubble.style.left = left + "px";
+  bubble.style.top = top + "px";
+  bubble.style.transform = "none";
+}
+
+function __tourNext() { showTourStep(tourStep + 1); }
+function __tourPrev() { showTourStep(tourStep - 1); }
+function __tourJump() {
+  const s = TOUR_STEPS[tourStep];
+  closeGuideTour();
+  if (s && s.jump) s.jump();
+}
+function __tourSkip() { closeGuideTour(); }
+function __tourDone() { closeGuideTour(); }
+function closeGuideTour() {
+  if (tourScrollHandler) {
+    window.removeEventListener("scroll", tourScrollHandler, true);
+    window.removeEventListener("resize", tourScrollHandler);
+    tourScrollHandler = null;
+  }
+  if (!tourEls) return;
+  const s = TOUR_STEPS[tourStep];
+  if (s && s.sel) { const el = $(s.sel); if (el) el.classList.remove("tour-target"); }
+  tourEls.mask.remove();
+  tourEls = null;
+  tourStep = -1;
+}
+
 /* ---------------- 居中模态弹窗 ---------------- */
 /* options: { title, text, icon, actions: [{label, primary, onClick}], closable } */
 function showModal(opts) {
@@ -3446,8 +3649,12 @@ async function init() {
   loadState();
   updateGamestat();
   goHome();
-  // 首次打开引导绑定 LLM（只弹一次，之后可在设置里随时配置）
-  if (!LLM_KEY && !localStorage.getItem("examCenter.llmGuided")) {
+  // 新人引导：首次使用（未看过引导）且题库为空 → 自动播放高亮 Tour
+  if (!localStorage.getItem(GUIDE_KEY) && !(COURSE && COURSE.quiz && COURSE.quiz.length)) {
+    setTimeout(() => startGuideTour(), 600);
+  }
+  // 已看过引导但未配置 LLM → 弹一次性配置提醒（只弹一次，之后可在设置里随时配置）
+  if (!LLM_KEY && localStorage.getItem(GUIDE_KEY) && !localStorage.getItem("examCenter.llmGuided")) {
     localStorage.setItem("examCenter.llmGuided", "1");
     setTimeout(() => {
       showModal({

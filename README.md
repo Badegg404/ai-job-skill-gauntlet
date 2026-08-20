@@ -105,6 +105,13 @@ pyinstaller --clean --noconfirm build.spec
 open dist/AI面试能力评估.app    # macOS
 ```
 
+### First-time onboarding (new-user guide)
+
+The app guides first-time users through the flow step by step — no more wondering what to do first:
+
+- **🏠 Home-page guide bar** (always visible until all steps are done): a 4-step checklist — ① Configure LLM → ② Import study materials → ③ Take exams (theory / practical / interview) → ④ View your skill profile. Each step shows its real-time status (✅ done / 🔒 waiting), and the **next action you should take is highlighted with a "Go →" button**.
+- **🎬 Auto-played highlight tour** (first launch only, replayable anytime via the "👀 New-user guide demo" button): a spotlight overlay walks you through the 4 steps with a step bubble, and one click jumps straight into the target screen.
+
 ### Configure the LLM (required)
 
 On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek official**, **Alibaba Bailian**, and any OpenAI-compatible endpoint). The key is used by your browser to call the LLM directly, and can also be auto-filled from local environment variables — **it never leaves your machine**.

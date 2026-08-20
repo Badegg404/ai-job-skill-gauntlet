@@ -69,7 +69,7 @@ if sys.platform == "darwin":
     )
     app = BUNDLE(
         coll,
-        name="AI面试能力评估.app",
+        name="AI岗位能力试炼.app",
         icon=None,
         bundle_identifier="com.examcenter.assessment",
     )
