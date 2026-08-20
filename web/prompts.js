@@ -116,6 +116,7 @@ ${TEACHING_METHODS}
   - bugfix Bug 修复：practical.code 放有缺陷的真实代码，highlightLines 标注问题行，问「正确的修复是哪个」（单选）
   - progression 递进 / compare 对比：当代码文件有多个（如 demo-1.py、demo-2.py 名称有序），用 practical.codeBlocks（[{"file":"demo-1.py","code":"..."},{"file":"demo-2.py","code":"..."}]）出跨文件题——问「相对上一版新增的关键能力 / 两种实现的本质区别与优劣」（单选或 multi=true 多选）
   题干要贴合真实业务场景，不要空泛；正确选项必须对应代码的真实行为。
+  本批次只出代码客观题（practical.compareMode 固定填 "code_choice"），practical.subtype 只能从上述 5 种里选——禁止生成写代码任务题（llm_code，写代码题由考核时另行动态生成）；每题 practical.correctIndex 填正确选项下标数组（单选 [n]，多选 [a,b,...]）。
 
 输出 JSON 格式（严格，不要多余文字）：
 {
