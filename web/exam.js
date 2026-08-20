@@ -2635,10 +2635,10 @@ function showResult() {
     state.lastStudyDay = today;
     state.bestStreak = Math.max(state.bestStreak || 0, state.streak);
   }
-  // 能力维度历史最佳
+  // 能力维度历史最佳（记录 ≥75% 的维度，支持「熟练 75% / 精通 90%」两级技术徽章判定）
   if (!state.abilityBest) state.abilityBest = {};
   for (const [ab, p] of Object.entries(abilityPct)) {
-    if (p >= 90) state.abilityBest[ab] = Math.max(state.abilityBest[ab] || 0, p);
+    if (p >= 75) state.abilityBest[ab] = Math.max(state.abilityBest[ab] || 0, p);
   }
   // 能力画像累积（综合评估基础水平：按题量加权平均）
   if (!state.abilityProfile) state.abilityProfile = {};

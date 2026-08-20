@@ -342,6 +342,30 @@ test("庆祝动画模板含核心元素与粒子爆发", () => {
   assert.ok(src.includes("burstParticles"), "应触发粒子爆发");
   assert.ok(src.includes("RARITY_META"), "应使用稀有度颜色");
 });
+test("熟练级徽章 75% 解锁（分层）", () => {
+  raw("state.abilityBest = { '提示词工程': 78 }; state.bestInterview = 0;");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab1_prompt').check(state)"), true, "78% 应解锁熟练级");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_prompt').check(state)"), false, "78% 不解锁精通级");
+});
+test("汇总徽章按达标维度数递进", () => {
+  raw("state.abilityBest = { '提示词工程': 80, 'RAG 与知识库': 85, '工具调用': 76 }; state.bestInterview = 0;");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'tech_new').check(state)"), true);
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'tech_hand').check(state)"), true, "3 维 75+ 解锁技术能手");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_full').check(state)"), false, "75 分维度不计入 90 精通");
+});
+test("全维大师需 10 维 90%+", () => {
+  const best = {};
+  const dims = ["提示词工程", "RAG 与知识库", "工具调用", "向量与 Embedding", "Agent 核心机制", "模型微调", "开发框架", "部署与推理", "算法与神经网络", "面试表达力"];
+  dims.forEach((d, i) => best[d] = 91 + i);
+  raw("state.abilityBest = " + JSON.stringify(best) + "; state.bestInterview = 0;");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_all10').check(state)"), true);
+});
+test("实践层级徽章（实战次数/面试次数）", () => {
+  raw("state.history = " + JSON.stringify(Array.from({ length: 6 }, () => ({ mode: "practical" }))) + "; state.interviewLogs = " + JSON.stringify([{ job: "x" }, { job: "y" }, { job: "z" }]) + "; state.bestInterview = 0;");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'prac5').check(state)"), true);
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'prac15').check(state)"), false);
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'iv3').check(state)"), true);
+});
 
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
