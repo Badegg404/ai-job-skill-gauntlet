@@ -1203,6 +1203,38 @@ async function handleImportFileList(mdFiles) {
           }
           if (stEl) stEl.textContent = "✅ 完成 " + added + " 道";
         });
+        // 实战题数量校验与补足：必须至少 10 道实战、其中 llm_code 至少 2 道（纯 LLM 驱动，无引擎题兜底）
+        const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
+        const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
+        let pracRetries = 0;
+        while (pracRetries < 3 && (countPrac() < 10 || countLlmCode() < 2)) {
+          pracRetries++;
+          const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
+          if (stElP) stElP.textContent = "⏳ 补充生成（" + pracRetries + "/3）…";
+          const extra = await browserLLMGenerate(data.course, "practical");
+          if (!extra || !extra.length) break;
+          let extraAdded = 0;
+          for (const q of extra) {
+            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;
+            q.id = nid++;
+            q.source = "llm";
+            if (!q.dimension) q.dimension = inferDimension(q);
+            q.interview = !!q.interview;
+            if (q.type === "essay" && !q.followUps) q.followUps = [];
+            normalizeLLMQuestion(q);
+            data.course.quiz.push(q);
+            seenTxt.add((q.question || "") + "|" + q.type);
+            llmMade++;
+            extraAdded++;
+          }
+          if (!extraAdded) break;
+        }
+        if (countPrac() < 10 || countLlmCode() < 2) {
+          clearInterval(pTimer);
+          throw new Error("实战题不足（" + countPrac() + " 道实战，其中写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标");
+        }
+        const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
+        if (stElP2) stElP2.textContent = "✅ 完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
         if (!llmMade) {
           clearInterval(pTimer);
