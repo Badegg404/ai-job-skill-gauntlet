@@ -777,11 +777,12 @@ async function browserLLMGenerate(course, payload) {
     .map((ch) => `- 第${ch.index}章 ${ch.title}: ${(ch.summary || "").slice(0, 60)}`).join("\n") || "（无章节）";
   const difficulties = (course.difficulties || []).slice(0, 5)
     .map((d) => `- ${d.title}`).join("\n") || "（无难点）";
-  // 代码文件内容（出题素材，尤其 concepts/chapters 为空时，让 LLM 基于真实代码出题）
+  // 代码文件内容（出题素材：按文件名排序，利于 LLM 识别递进/对比关系，基于真实代码出实战题）
   const codeFiles = (course.materials || [])
     .filter((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)))
-    .slice(0, 6)
-    .map((m) => `【${m.file || m.path}】\n${(m.preview || "").slice(0, 200)}`).join("\n");
+    .sort((a, b) => (a.file || a.path || "").localeCompare(b.file || b.path || ""))
+    .slice(0, 8)
+    .map((m, i) => `[文件${i + 1}] ${m.file || m.path}（${m.lines || "?"} 行）\n${(m.preview || "").slice(0, 400)}`).join("\n\n");
 
   const system = SYSTEM.examiner;
   const prompt = buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles);
@@ -1908,6 +1909,23 @@ function startExam(mode) {
   });
 }
 
+/* 代码实战客观题：渲染代码块，标注行高亮显示 */
+function renderCodeBlock(file, code, highlightLines) {
+  const lines = String(code || "").split("\n");
+  const hl = new Set((highlightLines || []).map((n) => Number(n)));
+  const maxNo = Math.max(3, String(lines.length).length);
+  const body = lines.map((ln, i) => {
+    const n = i + 1;
+    const isHl = hl.has(n);
+    return `<div class="code-line${isHl ? " hl" : ""}" data-line="${n}"><span class="code-no">${String(n).padStart(maxNo, "0")}</span><span class="code-txt">${esc(ln) || "\u00a0"}</span></div>`;
+  }).join("");
+  return `<div style="margin-bottom:12px">
+    ${file ? `<div style="font-size:11.5px;color:var(--accent-3);font-family:var(--mono);margin-bottom:4px">📄 ${esc(file)}</div>` : ""}
+    ${(highlightLines || []).length ? `<div style="font-size:10.5px;color:#ffb84d;margin-bottom:4px">▎标注段：第 ${(highlightLines || []).join("、")} 行（高亮）</div>` : ""}
+    <div class="code-block">${body}</div>
+  </div>`;
+}
+
 function renderQuestion() {
   const q = quiz[quizIdx];
   wrongAttempts = 0;   // 新题重置答错重试状态
@@ -1921,7 +1939,7 @@ function renderQuestion() {
     : q.type === "choice" ? "（单选）"
     : q.type === "fill_blank" ? "（输入关键术语，模糊匹配）"
     : q.type === "essay" ? "（先自己组织语言回答，再看参考答案）"
-    : q.type === "practical" ? "（按任务运行代码，再作答）"
+    : q.type === "practical" ? (((q.practical || {}).compareMode === "code_choice") ? "（阅读代码后选择答案）" : "（按任务运行代码，再作答）")
     : "";
   // 难度星级
   const diff = q.difficulty || 2;
@@ -1994,6 +2012,16 @@ function questionBody(q) {
         <label class="qz-opt"><input type="radio" name="q${quizIdx}" value="${i}">
         <span class="qz-opt-key">${String.fromCharCode(65 + i)}</span>
         <span class="qz-opt-text">${esc(opt.replace(/^[A-E][.、)]\s*/, ""))}</span></label>`).join("")}</div>`;
+    } else if (p.compareMode === "code_choice") {
+      // 代码实战客观题：代码块（单文件 code / 多文件 codeBlocks）+ 高亮标注段 + 单选/多选
+      const blocks = (p.codeBlocks && p.codeBlocks.length) ? p.codeBlocks
+        : (p.code ? [{ file: (p.files || [])[0] || "", code: p.code }] : []);
+      body += blocks.map((b) => renderCodeBlock(b.file, b.code, p.highlightLines)).join("");
+      body += `<div class="qz-options">${(p.options || []).map((opt, i) => `
+        <label class="qz-opt"><input type="${p.multi ? "checkbox" : "radio"}" name="q${quizIdx}" value="${i}">
+        <span class="qz-opt-key">${String.fromCharCode(65 + i)}</span>
+        <span class="qz-opt-text">${esc(opt.replace(/^[A-E][.、)]\s*/, ""))}</span></label>`).join("")}</div>`;
+      if (p.multi) body += `<div style="font-size:11px;color:var(--accent-2);margin-top:6px">☑ 多选：选出所有正确答案</div>`;
     } else if (p.compareMode === "llm_code") {
       body += `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;font-family:var(--mono)">⌨️ 请编写代码实现上面的任务（Python）</div>
       <textarea class="qz-code-input" id="code-input" rows="10" spellcheck="false" placeholder="在这里写你的代码…" style="width:100%;font-family:var(--mono);background:#0a0f16;color:#e6f7ff;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;resize:vertical;box-sizing:border-box"></textarea>`;
@@ -2022,6 +2050,10 @@ function collectAnswer() {
     if (p.compareMode === "choice") {
       const r = $(`input[name="q${quizIdx}"]:checked`);
       return r ? +r.value : null;
+    }
+    if (p.compareMode === "code_choice") {
+      const sel = $$(`input[name="q${quizIdx}"]:checked`).map((i) => +i.value);
+      return p.multi ? sel : sel[0];
     }
     if (p.compareMode === "llm_code") return $("#code-input")?.value?.trim() || "";
     return $("#paste-input")?.value?.trim() || "";

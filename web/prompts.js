@@ -65,8 +65,14 @@ ${TEACHING_METHODS}
   2 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
   2 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
 
-二、实战维度（dimension 填 "practical"）—— 考察真实业务场景中的工程决策：
-  4 道场景选择题（真实业务场景，4 选项，correctIndex 为 0-3，题干要贴合本课内容，不要空泛）
+二、实战维度（dimension 填 "practical"）—— 基于课程【真实代码】的代码实战客观题（type 用 "practical"，practical.compareMode 填 "code_choice"）：
+  4 道，必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（4 道不要全同一种），在以下 5 种中选：
+  - spotlight 代码片段作用题：practical.code 放真实代码片段，highlightLines 标注其中一段的行号，问「标注段的作用/功能是什么」（单选，multi=false）
+  - functions 代码功能多选：practical.code 放真实代码，问「这段代码实现的【关键功能】有哪几个」（多选，multi=true）
+  - trace 输出预测：practical.code 放真实代码 + 题干给输入，问「运行结果/输出是什么」（单选）
+  - bugfix Bug 修复：practical.code 放有缺陷的真实代码，highlightLines 标注问题行，问「正确的修复是哪个」（单选）
+  - progression 递进 / compare 对比：当代码文件有多个（如 demo-1.py、demo-2.py 名称有序），用 practical.codeBlocks（[{"file":"demo-1.py","code":"..."},{"file":"demo-2.py","code":"..."}]）出跨文件题——问「相对上一版新增的关键能力 / 两种实现的本质区别与优劣」（单选或 multi=true 多选）
+  题干要贴合真实业务场景，不要空泛；正确选项必须对应代码的真实行为。
 
 输出 JSON 格式（严格，不要多余文字）：
 {
@@ -84,6 +90,28 @@ ${TEACHING_METHODS}
       "difficulty": 3,
       "dimension": "theory|practical",
       "chapterRef": null
+    },
+    {
+      "type": "practical",
+      "question": "题干（描述代码上下文与问题）",
+      "practical": {
+        "subtype": "spotlight|functions|trace|bugfix|progression|compare",
+        "compareMode": "code_choice",
+        "files": ["demo-2.py"],
+        "code": "展示的代码片段（单文件题）",
+        "codeBlocks": [{"file": "demo-1.py", "code": "..."}, {"file": "demo-2.py", "code": "..."}],
+        "highlightLines": [10, 11, 12],
+        "multi": false,
+        "options": ["A...", "B...", "C...", "D..."],
+        "correctIndex": [1],
+        "referenceAnswer": "解析" 
+      },
+      "answer": "解析",
+      "explanation": "讲解：为什么选这个",
+      "ability": "${ABILITY_WHITELIST}",
+      "difficulty": 4,
+      "dimension": "practical",
+      "chapterRef": null
     }
   ]
 }`;
@@ -94,15 +122,15 @@ function buildExamPrompt(conceptTxt, chapterTxt, mode, count, abilities, codeTxt
   const whitelist = abilities || ABILITY_WHITELIST;
   const modeDesc = mode === "theory"
     ? "理论考核：只出客观知识题（选择/多选/判断/填空），考察概念、原理、机制的准确掌握"
-    : "实战考核：生成代码实战任务题——结合课程中的代码与概念，给出具体编码任务（如实现某个函数/类），学生写代码后由你判分";
+    : "实战考核：生成代码实战题——约 3/4 为代码客观题（引用课程真实代码，ABCD 单选/多选，程序判分），约 1/4 为写代码任务题（学生写代码后由你判分）";
 
   const typeRequirement = mode === "theory"
     ? "题型在 choice（单选4选项）/ true_false（判断）/ fill_blank（填空）中选，多样化。判断题（true_false）的 correctAnswer 只能填「对」或「错」，且必须与题干陈述本身的真伪一致：题干说法正确就填「对」，说法错误就填「错」，并在 explanation 里说明对错原因；禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错。"
-    : "题型统一用 practical（代码实战）：给一个具体、可完成的编码任务，贴合课程里的代码/概念（如「实现一个过滤器」「实现一个 Adapter 类」「实现一个数据处理函数」）。必须附 referenceAnswer（参考实现代码）和 scoringPoints（2-4 条评分要点）。";
+    : "题型大部分用 practical 代码客观题（practical.compareMode 填 \"code_choice\"）：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/片段），类型在 spotlight（标注段作用，单选）/ functions（功能多选，multi=true）/ trace（输出预测，单选）/ bugfix（修复缺陷，单选）/ progression（多文件递进）/ compare（多文件对比）中多样化选取，附 options + correctIndex（数组）+ code 或 codeBlocks；少量（约 1/4）用 practical 写代码任务题（compareMode 填 \"llm_code\"）：给具体编码任务，附 referenceAnswer 和 scoringPoints（2-4 条）。";
 
   const jsonSchema = mode === "theory"
     ? `{"questions": [{"type": "choice|true_false|fill_blank", "question": "题干", "options": ["A","B","C","D"], "correctIndex": 0, "correctAnswer": "答案", "fillAnswers": ["可接受答案"], "explanation": "讲解", "ability": "能力维度名", "difficulty": 2, "dimension": "${mode}", "chapterRef": null}]}`
-    : `{"questions": [{"type": "practical", "question": "任务描述（含具体要求）", "practical": {"task": "具体编码任务", "codeContext": "可选的代码上下文/提示", "referenceAnswer": "参考实现代码", "scoringPoints": ["评分要点1","评分要点2"], "compareMode": "llm_code"}, "answer": "参考实现", "explanation": "讲解与评分要点", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}]}`;
+    : `{"questions": [{"type": "practical", "question": "题干", "practical": {"subtype": "spotlight|functions|trace|bugfix|progression|compare", "compareMode": "code_choice", "files": ["demo-2.py"], "code": "代码片段", "codeBlocks": [{"file": "demo-1.py", "code": "..."}], "highlightLines": [10], "multi": false, "options": ["A","B","C","D"], "correctIndex": [1], "referenceAnswer": "解析"}, "answer": "解析", "explanation": "讲解", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}, {"type": "practical", "question": "任务描述（含具体要求）", "practical": {"task": "具体编码任务", "codeContext": "可选的代码上下文/提示", "referenceAnswer": "参考实现代码", "scoringPoints": ["评分要点1","评分要点2"], "compareMode": "llm_code"}, "answer": "参考实现", "explanation": "讲解与评分要点", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}]}`;
 
   return `你是一名 AI 岗位出题专家。请根据候选人的学习资料，生成 ${count} 道考核题。
 

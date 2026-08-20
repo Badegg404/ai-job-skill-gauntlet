@@ -77,7 +77,17 @@ function validateLLMQuestion(q) {
   // 填空题：必须有答案
   if (t === "fill_blank" && !q.correctAnswer && !(Array.isArray(q.fillAnswers) && q.fillAnswers.length)) return false;
   // 问答题/实战题：必须有参考答案
-  if ((t === "essay" || t === "practical") && !q.answer && !(q.practical && q.practical.referenceAnswer)) return false;
+  if (t === "essay" && !q.answer) return false;
+  if (t === "practical") {
+    const p = q.practical || {};
+    if (p.compareMode === "code_choice") {
+      // 代码客观题：必须含选项 + 代码（单文件 code / 多文件 codeBlocks）
+      if (!Array.isArray(p.options) || p.options.length < 2) return false;
+      const ci = Array.isArray(p.correctIndex) ? p.correctIndex : [p.correctIndex];
+      if (!ci.length || ci.some((i) => Number(i) < 0 || Number(i) >= p.options.length)) return false;
+      if (!p.code && !(Array.isArray(p.codeBlocks) && p.codeBlocks.length)) return false;
+    } else if (!q.answer && !p.referenceAnswer) return false;
+  }
   return true;
 }
 
@@ -103,6 +113,20 @@ function normalizeLLMQuestion(q) {
     if (/^(正确|对|true|t|是|yes|y|√|✓)$/.test(c)) q.correctAnswer = "对";
     else if (/^(错误|错|false|f|否|no|n|×|✗)$/.test(c)) q.correctAnswer = "错";
     else q.correctAnswer = "对";
+  }
+  // practical 代码客观题归一化
+  if (q.type === "practical") {
+    const p = q.practical || {};
+    if (p.compareMode === "code_choice") {
+      if (!Array.isArray(p.correctIndex)) p.correctIndex = [parseInt(p.correctIndex, 10) || 0];
+      p.multi = !!p.multi;
+      if (!p.subtype) p.subtype = "code_choice";
+      if (!Array.isArray(p.files)) p.files = [];
+      if (Array.isArray(p.highlightLines)) {
+        p.highlightLines = p.highlightLines.map(Number).filter((n) => Number.isFinite(n));
+      }
+      if (!p.options) p.options = [];
+    }
   }
   // ability 白名单：非当前维度名单归入默认，防 LLM 注入任意字符串
   if (!ABILITIES.includes(q.ability)) q.ability = "提示词工程";
@@ -137,6 +161,15 @@ function judgeAnswer(q, userAns) {
   if (q.type === "practical") {
     const p = q.practical || {};
     if (p.compareMode === "choice") return +userAns === p.correctIndex;
+    if (p.compareMode === "code_choice") {
+      if (p.multi) {
+        const user = [...(Array.isArray(userAns) ? userAns : [userAns])].sort().join(",");
+        const correct = [...(Array.isArray(p.correctIndex) ? p.correctIndex : [p.correctIndex])].sort().join(",");
+        return user === correct;
+      }
+      const correctIdx = Array.isArray(p.correctIndex) ? p.correctIndex[0] : p.correctIndex;
+      return +userAns === correctIdx;
+    }
     if (p.compareMode === "paste") {
       // 匹配预期模式关键词
       const pat = p.expectedPattern || "";

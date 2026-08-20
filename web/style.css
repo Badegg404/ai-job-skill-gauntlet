@@ -1299,3 +1299,34 @@ body::after {
 .tour-bubble .tb-text { font-size: 13px; color: var(--text-1); line-height: 1.85; margin-bottom: 14px; }
 .tour-bubble .tb-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .tour-bubble .tb-actions .exam-btn { padding: 6px 12px; font-size: 12px; }
+
+/* ---- 代码实战客观题：代码块展示 + 标注段高亮 ---- */
+.code-block {
+  background: #0a0f16;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-x: auto;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.code-block .code-line { display: flex; gap: 10px; white-space: pre; }
+.code-block .code-no {
+  color: #33475e;
+  user-select: none;
+  flex: none;
+  min-width: 26px;
+  text-align: right;
+}
+.code-block .code-txt { color: #9fc3d8; white-space: pre; }
+.code-block .code-line.hl {
+  background: rgba(255, 184, 77, 0.14);
+  border-left: 2px solid #ffb84d;
+  padding-left: 6px;
+  margin-left: -8px;
+  border-radius: 3px;
+}
+.code-block .code-line.hl .code-txt { color: #ffe3b3; }
