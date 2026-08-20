@@ -507,6 +507,32 @@ test("实践层级徽章（实战次数/面试次数）", () => {
   assert.strictEqual(raw("BADGES.find(b => b.id === 'iv3').check(state)"), true);
 });
 
+console.log("\n== parseLLMJSON / findQuestionsArray（LLM JSON 容错解析） ==");
+test("parseLLMJSON 剥 markdown 代码块", () => {
+  const r = json("parseLLMJSON('```json{\"questions\": [{\"question\": \"q1\"}]}```')");
+  assert.ok(r && r.questions && r.questions.length === 1 && r.questions[0].question === "q1");
+});
+test("parseLLMJSON 截取大括号（带前后缀文字）", () => {
+  const r = json("parseLLMJSON('好的，以下是题目：{\"questions\": [{\"question\": \"q2\"}]} 以上就是全部')");
+  assert.ok(r && r.questions && r.questions[0].question === "q2");
+});
+test("parseLLMJSON 截断补全不抛异常", () => {
+  const r = json("parseLLMJSON('{\"questions\": [{\"question\": \"q3\", \"options\": [\"a\", \"b\"]}]')");
+  assert.ok(r === null || r.questions);
+});
+test("findQuestionsArray 递归找嵌套含 question 数组", () => {
+  const r = json("findQuestionsArray({data: {quiz: [{question: 'q4', type: 'essay'}]}}, 0)");
+  assert.ok(Array.isArray(r) && r.length === 1 && r[0].question === "q4");
+});
+test("findQuestionsArray 直接数组", () => {
+  const r = json("findQuestionsArray([{question: 'q5'}], 0)");
+  assert.ok(Array.isArray(r) && r.length === 1 && r[0].question === "q5");
+});
+test("extractLLMQuestions 代码块包裹的题目可解析", () => {
+  const r = json("extractLLMQuestions({choices: [{message: {content: '```json{\"questions\": [{\"type\": \"true_false\", \"question\": \"判断1\", \"correctAnswer\": \"对\", \"explanation\": \"e\"}]}```'}}]})");
+  assert.ok(Array.isArray(r) && r.length === 1 && r[0].type === "true_false");
+});
+
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
 process.exit(failed > 0 ? 1 : 0);
