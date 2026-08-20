@@ -84,6 +84,12 @@ RAG/检索增强 · 多模态/视觉算法 · AI 评测/质量 · Prompt/提示�
 
 ### 方式一：源码运行（推荐开发者）
 
+<div align="center">
+
+![首页展示](docs/screenshot-home.png)
+
+</div>
+
 ```bash
 # 1. 安装 Python 3.10+
 git clone https://github.com/Badegg404/ai-job-skill-gauntlet.git

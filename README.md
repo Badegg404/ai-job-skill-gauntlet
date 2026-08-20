@@ -18,6 +18,12 @@
 
 > **In one line**: Import your study materials, then run the gauntlet of a simulated interviewer that probes, roasts, and even kicks you out — walk away with a 10-dimension skill radar + job-match report + gamified growth.
 
+<div align="center">
+
+![Home](docs/screenshot-home.png)
+
+</div>
+
 ---
 
 ## ✨ Why this exists
