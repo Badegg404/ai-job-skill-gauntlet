@@ -309,14 +309,20 @@ function adaptivePick(pool, limit) {
   return shuffle(pool).slice(0, limit);
 }
 
-function injectReviewQuestions(filtered) {
+function injectReviewQuestions(filtered, mode) {
   const log = state.askedLog || {};
   const entries = Object.values(log);
   if (!entries.length) return filtered;
+  // 题型过滤：回顾题必须与当前考核模式匹配（理论考核绝不注入实战题，反之亦然）
+  const typeOk = (q) => {
+    if (mode === "practical") return q && q.type === "practical";
+    if (mode === "theory") return q && ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type);
+    return true;   // 其他模式（面试等）不过滤
+  };
   // 优先错题，且按「距离上次答错的时间」从远到近排序（间隔重复：越久越该复习）
-  const wrongs = entries.filter((e) => e.wrong > 0)
+  const wrongs = entries.filter((e) => typeOk(e.q) && e.wrong > 0)
     .sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
-  const others = entries.filter((e) => !e.wrong)
+  const others = entries.filter((e) => typeOk(e.q) && !e.wrong)
     .sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
   const candidates = wrongs.concat(others);
   // 最多抽 3 道，且不能与本次试卷重复
@@ -1903,8 +1909,12 @@ function startExam(mode) {
         filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
       } catch (e) { /* 忽略，继续用题库题 */ }
     }
-    // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道）
-    filtered = injectReviewQuestions(filtered);
+    // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
+    filtered = injectReviewQuestions(filtered, mode);
+    // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
+    filtered = filtered.filter((q) => mode === "theory"
+      ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
+      : q.type === "practical");
     loading.log("注入回顾题（错题间隔重考）");
     loading.setProgress(95);
     await loading.finish();   // 确保动画至少展示一小段，避免本地加载太快一闪而过
@@ -3298,8 +3308,12 @@ async function startDirExam(dirId, mode) {
       filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
     } catch (e) { /* 忽略 */ }
   }
-  // D1：回顾题
-  filtered = injectReviewQuestions(filtered);
+  // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
+  filtered = injectReviewQuestions(filtered, mode);
+  // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
+  filtered = filtered.filter((q) => mode === "theory"
+    ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
+    : q.type === "practical");
   loading.log("注入回顾题（错题间隔重考）");
   loading.setProgress(95);
   await loading.finish();   // 确保动画至少展示一小段

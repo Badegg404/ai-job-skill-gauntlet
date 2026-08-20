@@ -244,6 +244,18 @@ test("面试追问 prompt 要求从回答延伸 + 具体详细", () => {
   assert.ok(p.includes("正例"), "应含正例约束");
   assert.ok(p.includes("反例"), "应含反例约束");
 });
+test("回顾题按模式过滤：理论考核不注入实战题", () => {
+  raw("state.askedLog = { 'p1': { q: { type: 'practical', question: '实战题A', dimension: 'practical' }, wrong: 1, lastAt: 1 }, 't1': { q: { type: 'choice', question: '理论题B', options: ['a', 'b'], correctIndex: [0] }, wrong: 1, lastAt: 2 } };");
+  const base = [{ type: "choice", question: "新题C", options: ["a", "b"], correctIndex: [0] }];
+  const out = raw("injectReviewQuestions(" + JSON.stringify(base) + ", 'theory')");
+  assert.ok(out.every((q) => ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)), "理论考核回顾题应全是理论题型");
+  assert.ok(out.some((q) => q.question === "理论题B"), "应注入理论错题");
+});
+test("回顾题按模式过滤：实战考核只注入实战题", () => {
+  const base = [{ type: "practical", question: "新实战题", dimension: "practical" }];
+  const out = raw("injectReviewQuestions(" + JSON.stringify(base) + ", 'practical')");
+  assert.ok(out.every((q) => q.type === "practical"), "实战考核回顾题应全是实战题");
+});
 
 console.log("\n== 面试上下文随机采样 ==");
 test("资料多时每次采样不同（随机性）", () => {
