@@ -533,6 +533,18 @@ test("extractLLMQuestions 代码块包裹的题目可解析", () => {
   assert.ok(Array.isArray(r) && r.length === 1 && r[0].type === "true_false");
 });
 
+test("理论 prompt count 参数化：4 道 → 2 选择 + 1 判断 + 1 填空", () => {
+  const p = raw("buildImportTheoryPrompt('课程', '概念', '章节', '难点', '', 4)");
+  assert.ok(p.includes("4 道理论题"), "4 道理论题");
+  assert.ok(p.includes("2 道概念辨析") && p.includes("1 道判断题") && p.includes("1 道填空题"), "2/1/1 题型分配");
+});
+test("实战 prompt count 参数化：3 道全 code_choice", () => {
+  const p = raw("buildImportPracticalPrompt('课程', '概念', '章节', '难点', '【demo-1.py】\\nprint(1)', '', 3)");
+  assert.ok(p.includes("3 道代码实战题"), "3 道实战题");
+  assert.ok(p.includes("全部为代码客观题"), "全 code_choice");
+  assert.ok(!p.includes("llm_code"), "无 llm_code 要求");
+});
+
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
 process.exit(failed > 0 ? 1 : 0);

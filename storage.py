@@ -91,6 +91,13 @@ def rebuild_dirs_index(uid):
         except Exception:
             continue
         quiz = dd.get("course", {}).get("quiz", [])
+        materials = (dd.get("course", {}) or {}).get("materials", []) or []
+        # 纯笔记目录（无代码素材）不显示实战考核按钮：用 materials 的 code 类型判断（与前端 hasCode 一致）
+        has_code = any(
+            (m.get("type") == "code") or
+            (isinstance(m.get("file"), str) and re.search(r"\.(py|ipynb|js|ts|java)$", m.get("file") or "", re.I))
+            for m in materials
+        )
         dirs.append({
             "id": dd.get("id", f.stem),
             "title": dd.get("title", f.stem),
@@ -100,6 +107,7 @@ def rebuild_dirs_index(uid):
             "theoryCount": sum(1 for q in quiz if q.get("dimension") == "theory" or (q.get("dimension") is None and q.get("type") in ("choice", "multi_choice", "true_false", "fill_blank"))),
             "practicalCount": sum(1 for q in quiz if q.get("dimension") == "practical" or q.get("type") == "practical"),
             "interviewCount": sum(1 for q in quiz if q.get("interview")),
+            "hasCode": has_code,
         })
     (dirs_dir / "index.json").write_text(
         json.dumps({"dirs": dirs, "total": len(dirs)}, ensure_ascii=False, indent=2), encoding="utf-8")

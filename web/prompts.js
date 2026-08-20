@@ -141,7 +141,7 @@ ${TEACHING_METHODS}
       "difficulty": 4,
       "dimension": "practical",
       "chapterRef": null
-    },
+    }
   ]
 }`;
 }

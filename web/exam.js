@@ -1060,8 +1060,9 @@ async function llmJSON(opts) {
 
 
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
-async function browserLLMGenerate(course, part) {
-  // part: "theory" 只生成理论 16 道 | "practical" 只生成实战 10 道 | 缺省全量（26 道，兼容旧调用）
+async function browserLLMGenerate(course, part, count) {
+  // part: "theory" 只生成理论 | "practical" 只生成实战 | 缺省全量（26 道，兼容旧调用）
+  // count: 本次期望生成题数（首轮 16/10，补足轮传缺失量）；缺省按 part 回退 16/10/26
   if (!LLM_KEY) return [];
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = LLM_MODEL || "deepseek-chat";
@@ -1083,24 +1084,27 @@ async function browserLLMGenerate(course, part) {
   // 有代码文件才要求实战题：纯笔记目录（无代码素材）跳过实战硬校验，避免「无代码却要代码题」结构性必败
   const hasCode = codeFiles.trim().length > 0;
 
-  // 分设 token：理论轮纯文字 4500 足够，实战轮带真实代码 7000（避免统一偏大浪费或偏小截断）
-  const maxTokens = part === "theory" ? 4500 : part === "practical" ? 7000 : 10000;
+  // 期望题数：首轮 16/10，补足轮按缺失量；缺省回退 16/10/26
+  const wantCount = count || (part === "theory" ? 16 : part === "practical" ? 10 : 26);
+  // max_tokens 随首轮大 batch 放宽（消除 16/10 道单批截断，而非截断后靠补足兜底）
+  const maxTokens = part === "theory" ? 6000 : part === "practical" ? 9000 : 10000;
   const system = SYSTEM.examiner;
   const prompt = part === "theory"
-    ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt(), 4)
+    ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt(), wantCount)
     : part === "practical"
-    ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt(), 3)
+    ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt(), wantCount)
     : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
   // 实战硬校验仅在有代码文件时生效（纯笔记目录实战轮可返回空，不阻塞导入）
-  // 最低可用量门槛（宁缺毋滥）：单批 ≥8/5 即收，理想量 16/10 由导入主流程累积补足
-  const minCount = part === "theory" ? 4 : part === "practical" ? (hasCode ? 3 : 0) : (hasCode ? 7 : 4);   // 每批小量（4/3）就收，目标 16/10 由主流程 6 轮并行累积
+  // 最低可用量软门槛（宁缺毋滥）：低于此才触发「修正重出」；首轮即使截断到 12 道也直接收，交给补足轮精确补
+  const minCount = part === "theory" ? 4 : part === "practical" ? (hasCode ? 3 : 0) : (hasCode ? 7 : 4);
   const qs = await llmJSON({
-    system: SYSTEM.examiner,
+    system,
     prompt,
     formatHint: JSON_FORMAT_HINT,
     minCount,
     part,
+    maxTokens,
   });
   return qs;
 }
@@ -1295,8 +1299,8 @@ async function handleImportFileList(mdFiles) {
         const hasCode = (data.course.materials || []).some((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)));
         // 纯笔记目录不发实战请求（无代码素材，发了也白发还浪费请求；宁缺毋滥）
         const genParts = [
-          { key: "theory", label: "生成理论题 ing..", icon: "📘" },
-          ...(hasCode ? [{ key: "practical", label: "生成实战题 ing..", icon: "🛠️" }] : []),
+          { key: "theory", label: "生成理论题 ing..", icon: "📘", count: 16 },
+          ...(hasCode ? [{ key: "practical", label: "生成实战题 ing..", icon: "🛠️", count: 10 }] : []),
         ];
         const partsBox = $("#import-status .imp-parts");
         if (partsBox) {
@@ -1308,7 +1312,7 @@ async function handleImportFileList(mdFiles) {
             </div>`).join("");
         }
         const results = await Promise.allSettled(
-          genParts.map((gp) => browserLLMGenerate(data.course, gp.key))
+          genParts.map((gp) => browserLLMGenerate(data.course, gp.key, gp.count))
         );
         // 只有理论轮请求被拒绝（LLM 真不可用）才整体失败；实战轮 rejected/空响应 → 视为空，由补足+软提示兜底（宁缺毋滥：理论保住，实战不足提示补）
         const hardFail = results.findIndex((r, i) => r.status === "rejected" && genParts[i].key === "theory");
@@ -1345,19 +1349,22 @@ async function handleImportFileList(mdFiles) {
         // 数量统计：理论/实战累积补足到理想量（16/10），最低可用量（8/5）才允许通过
         const countTheory = () => (data.course.quiz || []).filter((q) => (q.dimension || inferDimension(q)) === "theory").length;
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
-        const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
-        // 累积补足（并行版）：每轮同时补理论 + 实战（各 1 批），直到理想量（理论 16 / 实战 10）达标
-        // 或 LLM 无法再产出（空响应/全重复 → 该方向停）；最多 6 轮防失控
+        // 补足循环（首轮 16/10 已由主批次发出）：每轮按「缺失量」精确补（下限理论 4 / 实战 3，避免「生成 1 道」过小请求），
+        // 直到理想量达标或该方向卡死（空响应/全重复 → 停）；最多补 2 轮（合计 3 轮）防失控
         let topRound = 0;
         let thStuck = false, pracStuck = false;
-        while (topRound < 6 && !(thStuck && (pracStuck || !hasCode || countPrac() >= 10)) && (countTheory() < 16 || (hasCode && countPrac() < 10))) {
+        while (topRound < 2 && ((countTheory() < 16 && !thStuck) || (hasCode && countPrac() < 10 && !pracStuck))) {
           topRound++;
-          const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(data.course, "theory").catch(() => null) : Promise.resolve(null);
-          const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(data.course, "practical").catch(() => null) : Promise.resolve(null);
+          // 缺失量对齐：理论题型是 N/2 选择 + N/4 判断 + N/4 填空，N 必须为 4 的倍数才自洽，故向上取整到 4 的倍数；
+          // 实战全 code_choice 无子分配，任意缺失量即可
+          const thNeed = Math.max(Math.ceil((16 - countTheory()) / 4) * 4, 4);
+          const pracNeed = Math.max(10 - countPrac(), 3);
+          const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(data.course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
+          const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(data.course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
           const stElT2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-state`) : null;
           const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
-          if (stElT2 && thJob) stElT2.textContent = "⏳ 补足理论（" + topRound + "/6）…";
-          if (stElP2 && pracJob) stElP2.textContent = "⏳ 补足实战（" + topRound + "/6）…";
+          if (stElT2 && thJob) stElT2.textContent = "⏳ 补足理论（" + topRound + "/2）…";
+          if (stElP2 && pracJob) stElP2.textContent = "⏳ 补足实战（" + topRound + "/2）…";
           const [thRes, pracRes] = await Promise.all([thJob, pracJob]);
           if (thRes !== null) { if (!thRes || !thRes.length) thStuck = true; else if (!hangQ(thRes)) thStuck = true; }
           if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
@@ -1367,7 +1374,7 @@ async function handleImportFileList(mdFiles) {
         const pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「🤖 补出题」补足" : "";
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
-        if (lblP) lblP.textContent = "完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
+        if (lblP) lblP.textContent = "完成 " + countPrac() + " 道";
         if (stElP2) stElP2.textContent = "✅";
         const lblT = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-label`) : null;
         if (lblT) lblT.textContent = "完成 " + countTheory() + " 道";
@@ -3484,41 +3491,57 @@ async function reGenerateQuestions(dirId) {
     const dd = await res.json();
     const course = dd.course;
     if (!course) throw new Error("目录无课程数据");
-    // 按缺失补：理论不足补理论（16 道）、实战不足（有代码文件时）补实战（10 道）——不再无脑全量 26
+    // 按缺失补到理想量（理论 16 / 实战 10），与导入流程同构：循环补足 + 去重 + 卡死停
     const quiz = course.quiz || [];
     const hasCode = (course.materials || []).some((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)));
-    const theoryCount = quiz.filter((q) => (q.dimension || inferDimension(q)) === "theory").length;
-    const pracCount = quiz.filter((q) => q.type === "practical" && q.source === "llm").length;
-    const needTheory = theoryCount < 8;
-    const needPrac = hasCode && pracCount < 10;
+    // 统一口径：理论/实战数量不过滤 source（与 showLibrary / 目录索引一致）
+    const countTheory = () => quiz.filter((q) => (q.dimension || inferDimension(q)) === "theory").length;
+    const countPrac = () => quiz.filter((q) => q.type === "practical").length;
+    const needTheory = countTheory() < 16;
+    const needPrac = hasCode && countPrac() < 10;
     if (!needTheory && !needPrac) {
-      showToast("✅ 题库已完整（理论 " + theoryCount + " · 实战 " + pracCount + "），无需补出题");
+      showToast("✅ 题库已完整（理论 " + countTheory() + " · 实战 " + countPrac() + "），无需补出题");
       showLibrary();
       return;
     }
     showToast("🤖 正在用 LLM 补出题（" + (needTheory ? "理论" : "") + (needTheory && needPrac ? " + " : "") + (needPrac ? "实战" : "") + "）…");
-    let llmQ = [];
-    if (needTheory) llmQ = llmQ.concat(await browserLLMGenerate(course, "theory"));
-    if (needPrac) llmQ = llmQ.concat(await browserLLMGenerate(course, "practical"));
-    if (!llmQ || !llmQ.length) {
-      showToast("⚠️ LLM 未返回有效题目，请检查 Key 或稍后重试");
-      return;
-    }
-    // ⑥ 修复：LLM 题 id 用全局近似唯一起点（原 existingIds 去重为死逻辑，已删除）
+    // 去重 + 补全 + 入库（与导入流程 hangQ 同逻辑）
+    const seenTxt = new Set(quiz.map((q) => (q.question || "") + "|" + q.type));
     let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重
-    let added = 0;
-    for (const q of llmQ) {
-      q.id = nid++;
-      q.source = "llm";
-      if (!q.dimension) q.dimension = inferDimension(q);
-      q.interview = !!q.interview;
-      if (q.type === "essay" && !q.followUps) q.followUps = [];
-      normalizeLLMQuestion(q);
-      course.quiz.push(q);
-      added++;
+    const hangQ = (qs) => {
+      let added = 0;
+      for (const q of qs || []) {
+        if (seenTxt.has((q.question || "") + "|" + q.type)) continue;
+        q.id = nid++;
+        q.source = "llm";
+        if (!q.dimension) q.dimension = inferDimension(q);
+        q.interview = !!q.interview;
+        if (q.type === "essay" && !q.followUps) q.followUps = [];
+        normalizeLLMQuestion(q);
+        quiz.push(q);
+        seenTxt.add((q.question || "") + "|" + q.type);
+        added++;
+      }
+      return added;
+    };
+    // 循环补足（与导入一致）：首轮按缺失量（下限 4/3），最多 3 轮；0 新增停该方向
+    const before = quiz.length;
+    let round = 0;
+    let thStuck = false, pracStuck = false;
+    while (round < 3 && ((countTheory() < 16 && !thStuck) || (hasCode && countPrac() < 10 && !pracStuck))) {
+      round++;
+      // 缺失量对齐：理论题型 N/2+N/4+N/4 要求 N 为 4 的倍数，向上取整；实战全 code_choice 任意缺失量即可
+      const thNeed = Math.max(Math.ceil((16 - countTheory()) / 4) * 4, 4);
+      const pracNeed = Math.max(10 - countPrac(), 3);
+      const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
+      const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
+      const [thRes, pracRes] = await Promise.all([thJob, pracJob]);
+      if (thRes !== null) { if (!thRes || !thRes.length) thStuck = true; else if (!hangQ(thRes)) thStuck = true; }
+      if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
     }
+    const added = quiz.length - before;
     if (!added) {
-      showToast("⚠️ 未新增题目（可能已存在）");
+      showToast("⚠️ 未新增题目（可能已存在或 LLM 未返回有效题）");
       return;
     }
     await fetch("/api/course-save", {
@@ -3526,7 +3549,7 @@ async function reGenerateQuestions(dirId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ uid: UID, course, dirId }),
     });
-    showToast(`✅ 已补出 ${added} 道题，理论考核现在可用`);
+    showToast(`✅ 已补出 ${added} 道（理论 ${countTheory()} · 实战 ${countPrac()}）`);
     showLibrary();
   } catch (e) {
     showToast(`⚠️ 补出题失败：${e.message}`);
@@ -3537,8 +3560,11 @@ async function reGenerateQuestions(dirId) {
 async function showLibrary() {
   const dirs = await refreshDirs();
   const cards = dirs.map((d) => {
+    // 纯笔记目录（无代码素材）不显示实战考核按钮；旧目录索引无 hasCode 字段时按 practicalCount 兜底
+    const hasCode = d.hasCode === undefined ? d.practicalCount > 0 : !!d.hasCode;
     const theoryReady = d.theoryCount >= 8;   // 理论考核需 ≥8 道（不足置灰）
     const practicalReady = d.practicalCount >= 5;   // 实战考核需 ≥5 道（不足置灰）
+    const needRegen = !theoryReady || (hasCode && !practicalReady);   // 补出题按钮露出条件：任一方向不足
     return `
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
@@ -3552,16 +3578,19 @@ async function showLibrary() {
             ${d.fileCount} 个文件 · ${d.quizCount} 题（理论 ${d.theoryCount} · 实战 ${d.practicalCount} · 面试 ${d.interviewCount}）
           </div>
           ${!theoryReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题不足（${d.theoryCount}/8）——点「🤖 补出题」补齐后即可考核</div>` : ""}
+          ${hasCode && !practicalReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 实战题不足（${d.practicalCount}/5）——点「🤖 补出题」补齐后即可考核</div>` : ""}
           <div style="font-size:11px;color:var(--text-2);margin-top:3px">${d.createdAt ? d.createdAt.slice(0, 16).replace("T", " ") : ""}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           ${theoryReady
             ? `<button class="exam-btn primary" onclick="startDirExam('${d.id}', 'theory')">📘 理论考核</button>`
             : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="理论题不足 8 道，先补出题或重新导入">📘 理论考核</button>`}
-          ${!theoryReady ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
-          ${practicalReady
-            ? `<button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')">🛠️ 实战考核</button>`
-            : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="实战题不足 5 道，先补出题">🛠️ 实战考核</button>`}
+          ${needRegen ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
+          ${hasCode
+            ? (practicalReady
+                ? `<button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')">🛠️ 实战考核</button>`
+                : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="实战题不足 5 道，先补出题">🛠️ 实战考核</button>`)
+            : ""}
           <button class="exam-btn ghost" onclick="showDirDetail('${d.id}')">📁 管理</button>
           <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="deleteDir('${d.id}')">🗑️</button>
         </div>
