@@ -355,6 +355,37 @@ test("考核界面与面试界面提供退出按钮", () => {
   assert.ok(iv.includes('onclick="quitInterview()"'), "面试界面应含退出按钮");
 });
 
+console.log("\n== 反馈驱动出题优化 ==");
+test("adaptivePick 剔除被反馈的坏题", () => {
+  raw("state.questionFlags = [{ q: '坏题A', flag: '答案有误' }];");
+  const pool = [];
+  for (let i = 0; i < 12; i++) pool.push({ question: (i === 0 ? "坏题A" : "好题" + i), ability: "提示词工程", difficulty: 2 });
+  for (let k = 0; k < 5; k++) {
+    const out = raw("adaptivePick(" + JSON.stringify(pool) + ", 10)");
+    assert.ok(!out.some((q) => q.question === "坏题A"), "被反馈的坏题不应被抽出");
+  }
+});
+test("考点/难度不合适的题在池充足时降权", () => {
+  raw("state.questionFlags = [{ q: '争议题B', flag: '考点/难度不合适' }];");
+  const pool = [];
+  for (let i = 0; i < 12; i++) pool.push({ question: (i === 0 ? "争议题B" : "好题" + i), ability: "提示词工程", difficulty: 2 });
+  for (let k = 0; k < 5; k++) {
+    const out = raw("adaptivePick(" + JSON.stringify(pool) + ", 10)");
+    assert.ok(!out.some((q) => q.question === "争议题B"), "池充足时不应抽到降权题");
+  }
+});
+test("flaggedQuestionTxt 汇总被反馈题干", () => {
+  raw("state.questionFlags = [{ q: '坏题1', flag: '答案有误' }, { q: '坏题2', flag: '题干有误/表述不清' }, { q: '无问题题', flag: '考点/难度不合适' }];");
+  const txt = raw("flaggedQuestionTxt()");
+  assert.ok(txt.includes("坏题1") && txt.includes("坏题2"), "应包含被反馈题干");
+  assert.ok(!txt.includes("无问题题"), "难度不合适不计入避开列表");
+});
+test("出题 prompt 含被反馈题目避开段", () => {
+  const p = raw("buildExamPrompt('概念', '章节', 'theory', 4, null, '', '【被反馈】- 坏题1')");
+  assert.ok(p.includes("被反馈的题目"), "应含被反馈题目段");
+  assert.ok(p.includes("禁止生成相同或高度雷同"), "应禁止雷同");
+});
+
 console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
 test("技术徽章覆盖全部 10 个能力维度", () => {
   const tech = raw("BADGES.filter(b => b.id.startsWith('ab_'))");

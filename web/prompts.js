@@ -41,7 +41,7 @@ const TEACHING_METHODS = `【出题教学法（务必融入，让题目考察真
 /* 导入资料时的出题：生成 12 道考核题（理论 8 + 实战 4，理论客观题为主）。
  * 说明：这里【不生成面试题】——面试题需要岗位针对性，由面试考核时按岗位动态生成（buildInterviewQuestionPrompt）。
  * 岗位通用面试题（参考弹药）由 generateJobQuestions 在导入后单独提炼 3 道，存进 jobExtraQuestions。 */
-function buildImportPrompt(courseTitle, concepts, chapters, difficulties, codeFiles) {
+function buildImportPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt) {
   return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
 
 请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
@@ -55,6 +55,9 @@ ${chapters}
 ${difficulties}
 ${codeFiles ? `【代码文件】
 ${codeFiles}` : ""}
+${badTxt ? `
+【被反馈的题目（用户反馈过有问题，禁止生成相同或高度雷同的题）】
+${badTxt}` : ""}
 
 ${TEACHING_METHODS}
 
@@ -118,7 +121,7 @@ ${TEACHING_METHODS}
 }
 
 /* 考核时的动态出题（理论/实战模式） */
-function buildExamPrompt(conceptTxt, chapterTxt, mode, count, abilities, codeTxt) {
+function buildExamPrompt(conceptTxt, chapterTxt, mode, count, abilities, codeTxt, badTxt) {
   const whitelist = abilities || ABILITY_WHITELIST;
   const modeDesc = mode === "theory"
     ? "理论考核：只出客观知识题（选择/多选/判断/填空），考察概念、原理、机制的准确掌握"
@@ -143,7 +146,9 @@ ${conceptTxt}
 ${chapterTxt}
 ${codeTxt ? `代码文件：
 ${codeTxt}` : ""}
-
+${badTxt ? `被反馈的题目（用户反馈过有问题，禁止生成相同或高度雷同的题）：
+${badTxt}
+` : ""}
 出题要求：
 1. 题目必须贴合资料内容，考察真实理解而非背书。${codeTxt ? "实战题必须结合上面列出的具体代码文件出题（引用真实函数名/变量名/业务逻辑），禁止出泛化的通用编码题。" : ""}
 2. ${typeRequirement}

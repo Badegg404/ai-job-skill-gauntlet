@@ -270,8 +270,30 @@ function showCombo(n) {
 }
 
 /* ---------------- 试卷生成 ---------------- */
+/* 被反馈过的题干（供出题 prompt 避开雷同坏题）：题干有误/答案有误，最多 10 条 */
+function flaggedQuestionTxt() {
+  return (state.questionFlags || [])
+    .filter((f) => f.flag === "题干有误/表述不清" || f.flag === "答案有误")
+    .slice(0, 10)
+    .map((f) => `- ${f.q}`)
+    .join("\n") || "";
+}
+
 /* 自适应抽题：薄弱维度加权 + 按历史水平调整难度 */
 function adaptivePick(pool, limit) {
+  if (!pool.length) return [];
+  // 反馈过滤：用户反馈「题干有误/答案有误」的坏题直接剔除；「考点/难度不合适」的题在池充足时剔除（降权）
+  const flags = state.questionFlags || [];
+  const badTexts = new Set(flags.filter((f) => f.flag === "题干有误/表述不清" || f.flag === "答案有误").map((f) => f.q));
+  const softTexts = new Set(flags.filter((f) => f.flag === "考点/难度不合适").map((f) => f.q));
+  if (badTexts.size) {
+    const clean = pool.filter((q) => !badTexts.has(q.question));
+    if (clean.length >= Math.min(limit, pool.length)) pool = clean;
+  }
+  if (softTexts.size) {
+    const rest = pool.filter((q) => !softTexts.has(q.question));
+    if (rest.length >= limit) pool = rest;
+  }
   if (!pool.length) return [];
   const profilePct = abilityProfilePct();
   const recent = (state.history || []).slice(-3);
@@ -797,7 +819,7 @@ async function browserLLMGenerate(course, payload) {
     .map((m, i) => `[文件${i + 1}] ${m.file || m.path}（${m.lines || "?"} 行）\n${(m.preview || "").slice(0, 400)}`).join("\n\n");
 
   const system = SYSTEM.examiner;
-  const prompt = buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles);
+  const prompt = buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
   const res = await fetch(base + "/chat/completions", {
     method: "POST",
@@ -915,7 +937,7 @@ async function llmExamQuestions(courses, mode, count = 4) {
     ? "理论考核：只出客观知识题（选择/多选/判断/填空），考察概念、原理、机制的准确掌握"
     : "实战考核：生成代码实战任务题——结合课程中的代码与概念，给出具体编码任务（如实现某个函数/类），学生写代码后由你判分";
 
-  const prompt = buildExamPrompt(conceptTxt, chapterTxt, mode, count, ABILITIES.join("、"), codeTxt);
+  const prompt = buildExamPrompt(conceptTxt, chapterTxt, mode, count, ABILITIES.join("、"), codeTxt, flaggedQuestionTxt());
 
   const res = await fetch(base + "/chat/completions", {
     method: "POST",
