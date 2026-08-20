@@ -1144,11 +1144,15 @@ function startJobInterview(jobId) {
   // 浅拷贝：合并用户从资料提炼的「岗位通用面试题」，作为额外参考弹药（不污染静态知识库）
   const extra = (state.jobExtraQuestions || {})[baseJob.name] || [];
   const job = { ...baseJob, sampleQuestions: [...(baseJob.sampleQuestions || []), ...extra] };
+  // 兜底题池：每场面试打乱一次顺序（+ 随机起点），避免多次面试兜底题固定顺序不变
+  const fallbackPool = [...job.sampleQuestions].sort(() => Math.random() - 0.5);
+  const fallbackStart = Math.floor(Math.random() * Math.max(1, fallbackPool.length));
   const ctx = buildInterviewContext();
   const dims = Object.keys(job.dimensions).slice(0, 4);
   const maxRounds = interviewRoundCount(ctx);
   interviewState = {
     job, dims, ctx,
+    fallbackPool, fallbackStart,
     round: 0, maxRounds,
     history: [],        // [{question, type, dimension, answer}]
     // 开场白直接写入，进入面试间立刻显示（不用等 LLM）
@@ -1174,11 +1178,18 @@ function buildInterviewContext() {
     for (const d of (c.difficulties || [])) difficulties.push(d);
     for (const q of (c.quiz || [])) quiz.push(q);
   }
-  const conceptTxt = concepts.slice(0, 20)
+  // 随机采样：资料越多采样越多（cap 动态放宽），且每场面试看到的资料子集/顺序不同 → LLM 出题更多样
+  // 返回已打乱顺序的子集（既随机选哪些入选，也随机展示顺序）
+  const sample = (arr, cap, minCap = 3) => {
+    if (!arr.length) return [];
+    const target = Math.min(arr.length, Math.max(minCap, Math.ceil(arr.length * 0.5)), cap);
+    return shuffle(arr).slice(0, target);
+  };
+  const conceptTxt = sample(concepts, 30)
     .map((c) => `- ${c.name}：${(c.summary || "").slice(0, 60)}`).join("\n") || "（无概念表）";
-  const chapterTxt = chapters.slice(0, 15)
+  const chapterTxt = sample(chapters, 24)
     .map((ch) => `- 第${ch.index}章 ${ch.title}：${(ch.summary || "").slice(0, 50)}`).join("\n") || "（无章节）";
-  const diffTxt = difficulties.slice(0, 10)
+  const diffTxt = sample(difficulties, 16)
     .map((d) => `- ${d.title}：${(d.detail || "").slice(0, 60)}`).join("\n") || "（无难点）";
   const quizByDim = {};
   for (const q of quiz) {
@@ -1186,7 +1197,7 @@ function buildInterviewContext() {
     (quizByDim[d] = quizByDim[d] || []).push(q);
   }
   const quizTxt = Object.entries(quizByDim).map(([d, qs]) =>
-    `【${d}】${qs.slice(0, 6).map((q) => q.question.replace(/【[^】]*】/g, "").slice(0, 50)).join("；")}`
+    `【${d}】${sample(qs, 10, 4).map((q) => q.question.replace(/【[^】]*】/g, "").slice(0, 50)).join("；")}`
   ).join("\n") || "（题库为空）";
   const abilityTxt = Object.keys(abilityProfilePct() || {}).join("、") || "（无）";
   return {
@@ -1493,8 +1504,10 @@ async function generateNextQuestion() {
     }
   } catch (e) {
     showInterviewTyping(false);
-    // 兜底：从岗位典型题里取一题
-    const fallback = st.job.sampleQuestions[st.round % st.job.sampleQuestions.length];
+    // 兜底：从「已打乱的岗位典型题池」环形取（随机起点），顺序每场面试不同
+    const fp = (st.fallbackPool && st.fallbackPool.length) ? st.fallbackPool : st.job.sampleQuestions;
+    const fstart = st.fallbackStart || 0;
+    const fallback = fp[(fstart + st.round) % fp.length];
     if (fallback) {
       st.current = { type: "essay", question: fallback, dimension: st.dims[st.round % st.dims.length] };
       st.asked.push(fallback);

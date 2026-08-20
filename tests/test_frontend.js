@@ -235,6 +235,29 @@ test("buildExamPrompt 实战模式支持代码客观题 + 写代码题", () => {
   assert.ok(p.includes("codeBlocks"), "应支持多文件题");
 });
 
+console.log("\n== 面试上下文随机采样 ==");
+test("资料多时每次采样不同（随机性）", () => {
+  const concepts = Array.from({ length: 40 }, (_, i) => ({ name: "概念" + i, summary: "摘要" + i }));
+  raw("interviewCourses = [{ concepts: " + JSON.stringify(concepts) + ", chapters: [], difficulties: [], quiz: [] }]");
+  const c1 = raw("buildInterviewContext()");
+  const c2 = raw("buildInterviewContext()");
+  assert.notStrictEqual(c1.conceptTxt, c2.conceptTxt, "两次采样应不同");
+  assert.ok(c1.conceptCount >= 20, "40 个概念应采样约 20+ 个（动态扩量）");
+});
+test("资料少时全量纳入（不截断）", () => {
+  const concepts = Array.from({ length: 5 }, (_, i) => ({ name: "小概念" + i, summary: "s" + i }));
+  raw("interviewCourses = [{ concepts: " + JSON.stringify(concepts) + ", chapters: [], difficulties: [], quiz: [] }]");
+  const c = raw("buildInterviewContext()");
+  assert.strictEqual(c.conceptCount, 5, "5 个概念应全量纳入");
+});
+test("题库采样随资料量放宽", () => {
+  const quiz = Array.from({ length: 30 }, (_, i) => ({ question: "题" + i, type: "choice", dimension: "theory", options: ["a", "b"], correctIndex: [0] }));
+  raw("interviewCourses = [{ concepts: [], chapters: [], difficulties: [], quiz: " + JSON.stringify(quiz) + " }]");
+  const c = raw("buildInterviewContext()");
+  assert.ok(c.quizTxt.includes("【theory】"), "应含题库维度");
+  assert.ok((c.quizTxt.match(/题/g) || []).length >= 8, "30 道题应采样多道（原固定 6）");
+});
+
 console.log("\n== 新人引导步骤判断 ==");
 test("TOUR_STEPS 不包含跳转按钮字段（引导只走下一步）", () => {
   const t = raw("JSON.stringify(TOUR_STEPS)");
