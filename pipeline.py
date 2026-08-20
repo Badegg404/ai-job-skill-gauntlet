@@ -288,89 +288,14 @@ DATA_EXTS = ("json", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml", "csv", 
 
 
 def process_aux_file(filename, content, qid_start=3000):
-    """处理非笔记文件：提取数据并生成辅助题（代码实战题/数据理解题）。
+    """纯 LLM 驱动：辅助文件不再由引擎生成题目（实战/数据/资料题统一由 LLM 基于素材生成）。
 
-    返回 (aux_questions, aux_material)。
+    仅提取素材元信息（materials），供 LLM 出题与目录级综合面试题引用。
+    返回 (aux_questions, aux_material)，aux_questions 恒为 []。
     """
     ext = Path(filename).suffix.lstrip(".").lower()
     name = Path(filename).name
     lines = [ln for ln in content.splitlines() if ln.strip()]
-    aux_questions = []
-    qid = qid_start
-
-    def nid():
-        nonlocal qid
-        qid += 1
-        return qid
-
-    if ext in CODE_EXTS and lines:
-        # 代码文件 → 实战题：按文件自身特征分派不同问法，避免每份文件都是同一模板
-        code_snippet = "\n".join(lines[:40])
-        head = lines[:40]
-        # 尽量找一条非空的核心行作为线索（函数签名/类声明）
-        sig = next((ln.strip() for ln in head if ln.strip() and not ln.strip().startswith(("#", "//", "/*", "*", "def test", "import", "from", "print()"))), lines[0].strip())
-        has_print = any("print(" in ln for ln in head)
-        has_return = any("return " in ln for ln in head)
-        has_except = any(("except" in ln or "raise " in ln) for ln in head)
-        has_class = any(ln.lstrip().startswith("class ") for ln in head)
-        has_def = any(ln.lstrip().startswith("def ") for ln in head)
-        if has_class:
-            q_text = f"【实战】{name} 定义了哪些类/接口？它们之间的协作关系（谁调用谁/谁组合谁）是什么？请概括职责划分。"
-            expl = f"考察面向对象设计理解。文件 {name} 共 {len(lines)} 行，关注 class 定义与实例化关系。"
-        elif has_except:
-            q_text = f"【实战】{name} 如何处理异常与边界情况？指出异常处理逻辑的位置与作用，并说明少了它会怎样。"
-            expl = f"考察异常处理与健壮性理解。文件 {name} 共 {len(lines)} 行，关注 except/raise 分支。"
-        elif has_print or has_return:
-            q_text = f"【实战】阅读 {name}，模拟执行核心逻辑：给定输入时它的输出/返回值是什么？请先给出结果，再说明依据（关键步骤）。"
-            expl = f"考察代码执行追踪（trace）能力。文件 {name} 共 {len(lines)} 行，注意 print/return 语句的输出路径。"
-        elif has_def:
-            q_text = f"【实战】{name} 的核心函数/入口（如 {sig[:60]}）的输入输出是什么？关键实现步骤有哪些？"
-            expl = f"考察函数级代码理解。文件 {name} 共 {len(lines)} 行，核心线索：{sig[:80]}"
-        else:
-            q_text = f"【实战】阅读 {name} 的核心代码，概括它实现的功能与关键逻辑（数据流向 / 关键步骤）。"
-            expl = f"考察代码阅读理解能力。文件 {name} 共 {len(lines)} 行，核心逻辑见上方代码。"
-        aux_questions.append({
-            "id": nid(), "type": "practical",
-            "question": q_text,
-            "practical": {
-                "files": [name],
-                "compareMode": "self",
-                "expectedPattern": "",
-                "options": [],
-                "correctIndex": None,
-            },
-            "code": code_snippet[:1200],
-            "answer": f"代码文件 {name}：\n```\n{code_snippet[:800]}\n```\n阅读要点：找到入口函数与关键逻辑。",
-            "explanation": expl,
-            "chapterRef": None, "difficulty": 3, "interview": False,
-            "ability": "AI 应用开发", "source": "file",
-        })
-
-    elif ext in DATA_EXTS and lines:
-        # 数据/配置 → 数据理解题
-        head = lines[0][:80]
-        aux_questions.append({
-            "id": nid(), "type": "fill_blank",
-            "question": f"【数据】文件 {name} 是 __类型的配置/数据__，其主要作用是为系统提供 ______。",
-            "correctAnswer": "配置或数据",
-            "fillAnswers": ["配置", "数据", "配置或数据"],
-            "answer": f"文件 {name} 首行：{head}",
-            "explanation": f"数据/配置文件是系统输入的一部分，需与主流程配合理解。",
-            "chapterRef": None, "difficulty": 2, "interview": False,
-            "ability": "系统与部署", "source": "file",
-        })
-    elif lines and len(content) > 30:
-        # 其他文本 → 资料理解题
-        snippet = content.strip()[:200]
-        aux_questions.append({
-            "id": nid(), "type": "essay",
-            "question": f"【资料】文件 {name} 提供了什么信息？它与课程主题有什么关系？",
-            "answer": snippet,
-            "explanation": f"辅助资料 {name}，提取关键信息并关联课程。",
-            "chapterRef": None, "difficulty": 2, "interview": False,
-            "ability": "AI 应用开发", "source": "file",
-        })
-
     aux_material = {
         "file": name,
         "path": filename,
@@ -378,10 +303,9 @@ def process_aux_file(filename, content, qid_start=3000):
         "lines": len(lines),
         "preview": "\n".join(lines[:5])[:200],
     }
-    return aux_questions, aux_material
+    return [], aux_material
 
 
-# Q-2 修复：删掉从未使用的 api_base/model 死参数（api_key 仍用于 source.llmEnabled 标记）
 def build_comprehensive_interviews(course, max_count=5):
     """目录级综合参考面试题：结合整个目录资料（标题 / 概念 / 章节 / 代码文件）提炼，
     作为面试弹药参考——要准、要综合，不逐代码文件堆量。"""
