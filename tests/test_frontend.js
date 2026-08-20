@@ -545,6 +545,21 @@ test("实战 prompt count 参数化：3 道全 code_choice", () => {
   assert.ok(!p.includes("llm_code"), "无 llm_code 要求");
 });
 
+test("alignTheoryCount 不变量：任意缺失量对齐到 4 的倍数（下限 4）", () => {
+  const cases = [[0,4],[1,4],[2,4],[3,4],[4,4],[5,8],[6,8],[7,8],[8,8],[9,12],[12,12],[15,16],[16,16],[17,20]];
+  for (const [inp, want] of cases) {
+    const got = json("alignTheoryCount(" + inp + ")");
+    assert.strictEqual(got, want, "alignTheoryCount(" + inp + ") = " + got + " ≠ " + want);
+  }
+});
+test("理论 prompt 对 4 倍数 count 渲染自洽（题型和 = count）", () => {
+  for (const n of [4, 8, 12, 16]) {
+    const p = raw("buildImportTheoryPrompt(\'课程\', \'概念\', \'章节\', \'难点\', \'\', " + n + ")");
+    const sel = n / 2, jud = n / 4, fill = n / 4;
+    assert.ok(p.includes(sel + " 道概念辨析") && p.includes(jud + " 道判断题") && p.includes(fill + " 道填空题"), "count=" + n + " 题型 " + sel + "+" + jud + "+" + fill);
+  }
+});
+
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
 process.exit(failed > 0 ? 1 : 0);

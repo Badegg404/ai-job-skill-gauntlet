@@ -1210,6 +1210,9 @@ async function llmExamQuestions(courses, mode, count = 4) {
 }
 
 /* 核心：批量导入多份 .md */
+// 理论缺失量对齐 4 的倍数（题型 N/2+N/4+N/4 要求 N 为 4 的倍数才自洽）——模块级函数，导入与补出题共用，测试锁死不变量
+function alignTheoryCount(missing) { return Math.max(Math.ceil(missing / 4) * 4, 4); }
+
 async function handleImportFileList(mdFiles) {
   if (!mdFiles.length) return;
   // 兜底：未配置 LLM 不导入（showImportPanel 已拦截，这里防拖拽等入口绕过）
@@ -1357,7 +1360,7 @@ async function handleImportFileList(mdFiles) {
           topRound++;
           // 缺失量对齐：理论题型是 N/2 选择 + N/4 判断 + N/4 填空，N 必须为 4 的倍数才自洽，故向上取整到 4 的倍数；
           // 实战全 code_choice 无子分配，任意缺失量即可
-          const thNeed = Math.max(Math.ceil((16 - countTheory()) / 4) * 4, 4);
+          const thNeed = alignTheoryCount(16 - countTheory());
           const pracNeed = Math.max(10 - countPrac(), 3);
           const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(data.course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
           const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(data.course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
@@ -3531,7 +3534,7 @@ async function reGenerateQuestions(dirId) {
     while (round < 3 && ((countTheory() < 16 && !thStuck) || (hasCode && countPrac() < 10 && !pracStuck))) {
       round++;
       // 缺失量对齐：理论题型 N/2+N/4+N/4 要求 N 为 4 的倍数，向上取整；实战全 code_choice 任意缺失量即可
-      const thNeed = Math.max(Math.ceil((16 - countTheory()) / 4) * 4, 4);
+      const thNeed = alignTheoryCount(16 - countTheory());
       const pracNeed = Math.max(10 - countPrac(), 3);
       const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
       const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
