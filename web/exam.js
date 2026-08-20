@@ -1265,19 +1265,13 @@ async function handleImportFileList(mdFiles) {
         clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
-        if (data.dir && data.dir.id && !e.keepDir) {
-          await fetch("/api/dir-delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uid: UID, id: data.dir.id }),
-          }).catch(() => {});
-        }
+        // 失败不再自动删除目录：保留后端已解析的资料与文件清单，用户可重试、补出题或手动删除
         const msg = String((e && e.message) || e);
         const reason = /failed to fetch|fetch failed|network|net::/i.test(msg)
           ? "无法连接 API 服务（网络错误）"
           : msg;
         status.className = "parse-status err";
-        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。请您检查 API Key / 网络 / API 地址后重试。${e.keepDir ? "（目录已保留，未删除）" : ""}`;
+        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。目录已保留（未删除），可重新导入或点「🤖 补出题」修复。`;
       }
     }
 
