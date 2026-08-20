@@ -996,7 +996,8 @@ function setImportProgress(pct, icon, text, detail) {
       </div>
       <div class="imp-pct">${Math.round(pct)}%</div>
     </div>
-    <div class="imp-track"><div class="imp-fill" style="width:${Math.round(pct)}%"></div></div>`;
+    <div class="imp-track"><div class="imp-fill" style="width:${Math.round(pct)}%"></div></div>
+    <div class="imp-tip" style="margin-top:10px;font-size:12px;color:var(--text-2);text-align:center;min-height:18px"></div>`;
 }
 
 async function llmExamQuestions(courses, mode, count = 4) {
@@ -1103,21 +1104,41 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(42, "🤖", "LLM 正在生成题目", "浏览器直连 · Key 不出浏览器");
-      // 伪进度：单次 fetch 无法知道内部进度，用流动条 + 缓慢推进到 88%
+      setImportProgress(42, "🤖", "LLM 正在生成题目（两轮）", "每轮约 18 道 · 浏览器直连 · Key 不出浏览器");
+      // 伪进度：慢速平滑推进（>60% 后减速），匹配两轮生成的真实时长，避免进度条快速跳到 88% 后干等
       let impPct = 42;
+      const tips = [
+        "🧩 正在生成理论题：概念辨析 · 判断 · 填空",
+        "💻 正在生成实战题：代码作用 · 输出预测 · Bug 修复",
+        "📚 生成的全部题目会去重后存入本章题库",
+        "💡 提示：考核连续答对有连击加成，XP 更多",
+        "💡 提示：答错的题自动进错题本，之后会间隔重考",
+        "💡 提示：完成 6 步引导即可解锁完整能力画像",
+        "💡 提示：综合考核聚合所有章节题库，题量翻倍",
+        "💡 提示：支持 AI 面试官仿真面试，会严格追问",
+        "💡 提示：能力评估页可查看 10 维能力雷达图",
+      ];
+      let tipIdx = 0;
       const pTimer = setInterval(() => {
-        impPct = Math.min(88, impPct + 2);
+        impPct = Math.min(88, impPct + (impPct > 60 ? 0.5 : 1));
         const fill = $("#import-status .imp-fill");
         const pctEl = $("#import-status .imp-pct");
         if (fill) fill.style.width = impPct + "%";
-        if (pctEl) pctEl.textContent = impPct + "%";
-      }, 500);
+        if (pctEl) pctEl.textContent = Math.floor(impPct) + "%";
+        // 动态轮换提示文案，避免用户枯等
+        const tipEl = $("#import-status .imp-tip");
+        if (tipEl) {
+          tipIdx = (tipIdx + 1) % tips.length;
+          tipEl.textContent = tips[tipIdx];
+        }
+      }, 600);
       try {
         // 多轮生成（每轮 18 道，全部挂进本目录题库，去重累积）——按章节目录存储题库
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         let nid = 200000 + (Date.now() % 100000);
         for (let rnd = 0; rnd < 2; rnd++) {
+          const stTitle = $("#import-status .imp-stage-text");
+          if (stTitle) stTitle.textContent = rnd === 0 ? "LLM 生成题目（第 1 轮）" : "LLM 生成题目（第 2 轮）";
           const llmQ = await browserLLMGenerate(data.course, payload);
           if (!llmQ || !llmQ.length) continue;
           const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
@@ -2021,6 +2042,7 @@ function startExam(mode) {
     }
     // LLM 从全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
     loading.log("LLM 从全题库动态挑选组卷");
+    loading.setStatus("LLM 正在从题库组卷");
     const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 16, "cross");
     filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 30 : 16);
     loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
@@ -2032,8 +2054,8 @@ function startExam(mode) {
     }
     // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
     if (LLM_KEY) {
-      loading.log("调用 LLM 动态生成场景题");
-      loading.setStatus("LLM 动态出题中");
+      loading.log("调用 LLM 补充生成新题");
+      loading.setStatus("LLM 补充生成新题");
       loading.setProgress(75);
       try {
         const dyn = await llmExamQuestions(courses, mode, 8);
@@ -3441,6 +3463,7 @@ async function startDirExam(dirId, mode) {
   }
   // LLM 从本章节全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
   loading.log("LLM 从本章题库动态挑选组卷");
+  loading.setStatus("LLM 正在从本章题库组卷");
   const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 8, "chapter");
   filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 15 : 8);
   loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
@@ -3448,8 +3471,8 @@ async function startDirExam(dirId, mode) {
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
   // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
   if (LLM_KEY) {
-    loading.log("调用 LLM 动态生成场景题");
-    loading.setStatus("LLM 动态出题中");
+    loading.log("调用 LLM 补充生成新题");
+    loading.setStatus("LLM 补充生成新题");
     loading.setProgress(75);
     try {
       const dyn = await llmExamQuestions([dd.course], mode, 6);
