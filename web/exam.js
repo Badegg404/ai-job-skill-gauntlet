@@ -1203,7 +1203,7 @@ async function handleImportFileList(mdFiles) {
           }
           if (stEl) stEl.textContent = "✅ 完成 " + added + " 道";
         });
-        // 实战题数量校验与补足：必须至少 10 道实战、其中 llm_code 至少 2 道（纯 LLM 驱动，无引擎题兜底）
+        // 实战题数量校验与补足：必须至少 10 道实战（llm_code 不强制，由考核阶段动态生成兜底）——纯 LLM 驱动，无引擎题
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
         const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
         let pracRetries = 0;
@@ -1233,7 +1233,7 @@ async function handleImportFileList(mdFiles) {
         if (countPrac() < 10) {
           clearInterval(pTimer);
           // 数量不足：失败但不删目录（保留后端已解析的资料与文件清单，避免用户资料被静默清空）
-          const err = new Error("实战题仅 " + countPrac() + " 道（不足 10 道，含写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标——目录已保留，可重新导入或点「🤖 补出题」");
+          const err = new Error("实战题仅 " + countPrac() + " 道（不足 10 道，含写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标——本轮 LLM 题未保存，目录骨架已保留，请点「🤖 补出题」重新生成题目或重新导入");
           err.keepDir = true;
           throw err;
         }
