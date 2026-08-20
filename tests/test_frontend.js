@@ -425,7 +425,7 @@ test("综合考核题量翻倍于章节（30:16 vs 15:8）", () => {
 test("llmPickQuestions 容错：字符串编号归一化 + 不足补齐", () => {
   const src = raw("llmPickQuestions.toString()");
   assert.ok(src.includes("Number(i)"), "字符串编号应归一化");
-  assert.ok(src.includes("uniq.length < count"), "不足 count 应补齐");
+  assert.ok(src.includes("shuffle(rest)"), "不足 count 应随机补齐");
   assert.ok(src.includes("slice(0, 100)"), "候选题上限放宽到 100");
 });
 test("组卷流程：LLM 吃全题库，adaptivePick 只做回退", () => {

@@ -332,14 +332,20 @@ async function llmPickQuestions(pool, mode, count, scope) {
       if (a >= 0 && b > a) try { parsed = JSON.parse(content.slice(a, b + 1)); } catch (e2) {}
     }
     const picks = Array.isArray(parsed && parsed.picks)
-      ? parsed.picks.map((i) => Number(i)).filter((i) => Number.isInteger(i) && i >= 0 && i < pool.length)
+      ? parsed.picks
+          .filter((i) => (typeof i === "number" || (typeof i === "string" && String(i).trim() !== "")))
+          .map((i) => Number(i))
+          .filter((i) => Number.isInteger(i) && i >= 0 && i < pool.length)
       : [];
     const uniq = Array.from(new Set(picks)).slice(0, count);
     if (!uniq.length) return null;
-    // 不足 count 时从池中补齐（保证试卷题量完整，不缩水）
+    // 不足 count 时从池中补齐：随机打乱剩余题再补，避免每次都取题库头部固定题
     const pickedSet = new Set(uniq);
-    for (let i = 0; i < pool.length && uniq.length < count; i++) {
-      if (!pickedSet.has(i)) { uniq.push(i); pickedSet.add(i); }
+    const rest = [];
+    for (let i = 0; i < pool.length; i++) if (!pickedSet.has(i)) rest.push(i);
+    for (const i of shuffle(rest)) {
+      if (uniq.length >= count) break;
+      uniq.push(i);
     }
     return uniq.map((i) => pool[i]);
   } catch (e) { return null; }
@@ -1135,7 +1141,7 @@ async function handleImportFileList(mdFiles) {
       try {
         // 多轮生成（每轮 18 道，全部挂进本目录题库，去重累积）——按章节目录存储题库
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
-        let nid = 200000 + (Date.now() % 100000);
+        let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
         for (let rnd = 0; rnd < 2; rnd++) {
           const stTitle = $("#import-status .imp-stage-text");
           if (stTitle) stTitle.textContent = rnd === 0 ? "LLM 生成题目（第 1 轮）" : "LLM 生成题目（第 2 轮）";
@@ -3172,7 +3178,7 @@ async function reGenerateQuestions(dirId) {
       return;
     }
     // ⑥ 修复：LLM 题 id 用全局近似唯一起点（原 existingIds 去重为死逻辑，已删除）
-    let nid = 200000 + (Date.now() % 100000);
+    let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重
     let added = 0;
     for (const q of llmQ) {
       q.id = nid++;
