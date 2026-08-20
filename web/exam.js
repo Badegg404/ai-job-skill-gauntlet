@@ -1166,17 +1166,7 @@ async function handleImportFileList(mdFiles) {
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
         if (!llmMade) {
           clearInterval(pTimer);
-          // 回滚：删除刚创建的目录，避免留下只有引擎题、无法考核的残缺目录
-          if (data.dir && data.dir.id) {
-            await fetch("/api/dir-delete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ uid: UID, id: data.dir.id }),
-            }).catch(() => {});
-          }
-          status.className = "parse-status err";
-          status.innerHTML = "⚠️ LLM 出题失败（未返回有效题目），已回滚本次导入。请检查 API Key 与网络后重试。";
-          return;
+          throw new Error("LLM 未返回有效题目（两轮生成均为空）");
         }
         await fetch("/api/course-save", {
           method: "POST",
@@ -1206,8 +1196,12 @@ async function handleImportFileList(mdFiles) {
             body: JSON.stringify({ uid: UID, id: data.dir.id }),
           }).catch(() => {});
         }
+        const msg = String((e && e.message) || e);
+        const reason = /failed to fetch|fetch failed|network|net::/i.test(msg)
+          ? "无法连接 API 服务（网络错误）"
+          : msg;
         status.className = "parse-status err";
-        status.innerHTML = `⚠️ LLM 出题失败（${esc(e.message)}），已回滚本次导入`;
+        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。请您检查 API Key / 网络 / API 地址后重试。`;
       }
     }
 
