@@ -896,7 +896,7 @@ async function handleImportFolder(files) {
 }
 
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
-async function browserLLMGenerate(course, payload, part) {
+async function browserLLMGenerate(course, part) {
   // part: "theory" 只生成理论 16 道 | "practical" 只生成实战 10 道 | 缺省全量（26 道，兼容旧调用）
   if (!LLM_KEY) return [];
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
@@ -1173,7 +1173,7 @@ async function handleImportFileList(mdFiles) {
             </div>`).join("");
         }
         const results = await Promise.allSettled(
-          genParts.map((gp) => browserLLMGenerate(data.course, payload, gp.key))
+          genParts.map((gp) => browserLLMGenerate(data.course, gp.key))
         );
         // 任一请求失败或未返回题目 → 整体导入失败（由 catch 回滚目录）
         const badIdx = results.findIndex((r) => r.status !== "fulfilled" || !r.value || !r.value.length);
@@ -3269,7 +3269,7 @@ async function reGenerateQuestions(dirId) {
     const course = dd.course;
     if (!course) throw new Error("目录无课程数据");
     showToast("🤖 正在用 LLM 补出客观题…");
-    const llmQ = await browserLLMGenerate(course, []);
+    const llmQ = await browserLLMGenerate(course);
     if (!llmQ || !llmQ.length) {
       showToast("⚠️ LLM 未返回有效题目，请检查 Key 或稍后重试");
       return;
