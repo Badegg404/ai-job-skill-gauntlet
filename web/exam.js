@@ -928,7 +928,7 @@ async function browserLLMGenerate(course, payload) {
         { role: "user", content: prompt },
       ],
       temperature: 0.8,
-      max_tokens: 4500,
+      max_tokens: 7000,
       response_format: { type: "json_object" },
     }),
   });
@@ -949,7 +949,7 @@ async function browserLLMGenerate(course, payload) {
             { role: "user", content: prompt },
           ],
           temperature: 0.8,
-          max_tokens: 4500,
+          max_tokens: 7000,
         }),
       });
       if (res2.ok) return extractLLMQuestions(await res2.json());
@@ -1106,7 +1106,7 @@ async function handleImportFileList(mdFiles) {
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     let llmMade = 0;
     if (LLM_KEY && data.course) {
-      setImportProgress(10, "🤖", "LLM 正在生成题目（一轮）", "约 20 道 · 浏览器直连 · Key 不出浏览器");
+      setImportProgress(10, "🤖", "LLM 正在生成题目（一轮）", "约 26 道 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（10→20→…→90），每 6 tick（约 3.6 秒）跳一档，匹配生成时长
       let impPct = 10;
       let stepTicks = 0;
@@ -1141,7 +1141,7 @@ async function handleImportFileList(mdFiles) {
         }
       }, 600);
       try {
-        // 单轮生成（20 道：理论 10 + 实战 10，全部挂进本目录题库）——按章节目录存储题库
+        // 单轮生成（26 道：理论 16 + 实战 10，全部挂进本目录题库）——按章节目录存储题库
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
         for (let rnd = 0; rnd < 1; rnd++) {
@@ -2073,10 +2073,10 @@ function startExam(mode) {
     loading.log("LLM 从全题库动态挑选组卷");
     loading.setStatus("LLM 正在从题库组卷");
     const stopP1 = loading.autoProgress(60, 74);
-    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 10, "cross");
+    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 16 : 10, "cross");
     stopP1();
     loading.setProgress(75);
-    filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 30 : 10);
+    filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 16 : 10);
     loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
     if (!filtered.length) {
       showToast("⚠️ 暂无题目，请先导入资料");
@@ -2084,15 +2084,15 @@ function startExam(mode) {
       return;
     }
     // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
-    if (LLM_KEY && filtered.length < (mode === "theory" ? 30 : 10)) {
-      const need = (mode === "theory" ? 30 : 10) - filtered.length;
+    if (LLM_KEY && filtered.length < (mode === "theory" ? 16 : 10)) {
+      const need = (mode === "theory" ? 16 : 10) - filtered.length;
       loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
       loading.setStatus("LLM 动态补充缺题");
       const stopP2 = loading.autoProgress(75, 94);
       try {
         const dyn = await llmExamQuestions(courses, mode, need);
         if (seq !== examSeq) return;
-        if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 30 : 10);
+        if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 16 : 10);
       } catch (e) { /* 忽略 */ } finally {
         stopP2();
         loading.setProgress(95);
@@ -3519,22 +3519,22 @@ async function startDirExam(dirId, mode) {
   loading.log("LLM 从本章题库动态挑选组卷");
   loading.setStatus("LLM 正在从本章题库组卷");
   const stopP1 = loading.autoProgress(60, 74);
-  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 5, "chapter");
+  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 8 : 5, "chapter");
   stopP1();
   loading.setProgress(75);
-  filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 15 : 5);
+  filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 8 : 5);
   loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
   // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
-  if (LLM_KEY && filtered.length < (mode === "theory" ? 15 : 5)) {
-    const need = (mode === "theory" ? 15 : 5) - filtered.length;
+  if (LLM_KEY && filtered.length < (mode === "theory" ? 8 : 5)) {
+    const need = (mode === "theory" ? 8 : 5) - filtered.length;
     loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
     loading.setStatus("LLM 动态补充缺题");
     const stopP2 = loading.autoProgress(75, 94);
     try {
       const dyn = await llmExamQuestions([dd.course], mode, need);
       if (seq !== examSeq) return;
-      if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 15 : 5);
+      if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 8 : 5);
     } catch (e) { /* 忽略 */ } finally {
       stopP2();
       loading.setProgress(95);
