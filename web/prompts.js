@@ -38,7 +38,7 @@ const TEACHING_METHODS = `【出题教学法（务必融入，让题目考察真
  * 出题 prompt
  * ============================================================ */
 
-/* 导入资料时的出题：生成 12 道考核题（理论 8 + 实战 4，理论客观题为主）。
+/* 导入资料时的出题：生成 18 道考核题（理论 10 + 实战 8，理论客观题 + 代码实战客观题）；前端两轮调用后去重入库。
  * 说明：这里【不生成面试题】——面试题需要岗位针对性，由面试考核时按岗位动态生成（buildInterviewQuestionPrompt）。
  * 岗位通用面试题（参考弹药）由 generateJobQuestions 在导入后单独提炼 3 道，存进 jobExtraQuestions。 */
 function buildImportPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt) {

@@ -452,7 +452,7 @@ function goHome() {
   const profileKeys = Object.keys(profilePct);
   const modeCards = [
     { icon: "📘", title: "理论考核", desc: "跨章节综合 · 概念/原理/判断等客观知识题", tag: "综合", onClick: "startExam('theory')", disabled: isEmpty },
-    { icon: "🛠️", title: "实战考核", desc: "跨章节综合 · 场景决策 + 代码运行对比", tag: "综合", onClick: "startExam('practical')", disabled: isEmpty },
+    { icon: "🛠️", title: "实战考核", desc: "跨章节综合 · 代码实战客观题（代码作用/输出预测/Bug 修复）", tag: "综合", onClick: "startExam('practical')", disabled: isEmpty },
     { icon: "💼", title: "面试考核", desc: "AI 面试官仿真对话，按岗位技能严格追问", tag: "需 LLM", onClick: "startInterview()", disabled: isEmpty },
   ];
   const cards = modeCards.map((m) => `
@@ -515,7 +515,7 @@ function goHome() {
     </div>
     ${!LLM_KEY ? `
     <div class="card" style="margin-bottom:20px;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-color:rgba(255,61,240,0.35);background:linear-gradient(90deg,rgba(255,61,240,0.07),rgba(176,38,255,0.05))">
-      <div style="font-size:13px;color:var(--text-1)">💡 <strong style="color:var(--accent-2)">提示</strong>：本系统核心能力（出题、题目打标签、语义判分、岗位匹配）由 LLM 驱动，请先在「⚙️ 设置」中配置 API Key，否则无法开始考核。</div>
+      <div style="font-size:13px;color:var(--text-1)">💡 <strong style="color:var(--accent-2)">提示</strong>：本系统核心能力（题库组卷、出题、题目打标签、语义判分、岗位匹配）由 LLM 驱动，请先在「⚙️ 设置」中配置 API Key，否则无法开始考核。</div>
       <button class="exam-btn" style="padding:7px 16px;font-size:13px" onclick="showSettings()">⚙️ 去设置</button>
     </div>` : ""}
     ${renderGuideBarHTML()}
@@ -529,7 +529,7 @@ function goHome() {
     <h3 class="section-title" style="margin:4px 0 14px">🎯 综合考核</h3>
     <div style="margin:0 0 14px;font-size:13.5px;color:var(--text-1);line-height:1.9;background:rgba(0,229,255,0.04);border:1px solid var(--border);border-radius:10px;padding:12px 15px">
       🗂️ 想按单个章节分阶段考核，请进「<strong style="color:var(--accent-2)">资料目录</strong>」选择对应章节。<br>
-      💡 跨全部章节混合出题，检验整体掌握与遗忘；点下方卡片开始。
+      💡 聚合全部章节题库，LLM 从题库组卷、检验整体掌握与遗忘；点下方卡片开始。
     </div>
     <div class="mode-grid">${cards}</div>
     ${profileCard}
@@ -752,7 +752,7 @@ function showImportPanel() {
     showModal({
       icon: "🤖",
       title: "导入资料需要 LLM",
-      text: "导入时由 LLM 出题（理论客观题 + 实战场景题，共 12 道），并为对应岗位提炼面试参考题。未配置 LLM 无法生成考核题。请先配置 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口）。",
+      text: "导入时由 LLM 生成考核题（理论客观题 + 代码实战客观题），两轮生成去重后存入本章题库，并为对应岗位提炼面试参考题。未配置 LLM 无法生成考核题。请先配置 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口）。",
       actions: [
         { label: "⚙️ 去设置", primary: true, onClick: () => showSettings() },
         { label: "先不了", onClick: () => {} },
@@ -1028,10 +1028,6 @@ async function llmExamQuestions(courses, mode, count = 4) {
   const chapterTxt = chapters.slice(0, 12).join("\n") || "（无章节）";
   const codeTxt = codeFiles.slice(0, 6).join("\n") || "";
 
-  const modeDesc = mode === "theory"
-    ? "理论考核：只出客观知识题（选择/多选/判断/填空），考察概念、原理、机制的准确掌握"
-    : "实战考核：生成代码实战任务题——结合课程中的代码与概念，给出具体编码任务（如实现某个函数/类），学生写代码后由你判分";
-
   const prompt = buildExamPrompt(conceptTxt, chapterTxt, mode, count, ABILITIES.join("、"), codeTxt, flaggedQuestionTxt());
 
   const res = await fetch(base + "/chat/completions", {
@@ -1125,17 +1121,21 @@ async function handleImportFileList(mdFiles) {
         "💡 提示：能力评估页可查看 10 维能力雷达图",
       ];
       let tipIdx = 0;
+      let tipTicks = 0;
       const pTimer = setInterval(() => {
         impPct = Math.min(88, impPct + (impPct > 60 ? 0.5 : 1));
         const fill = $("#import-status .imp-fill");
         const pctEl = $("#import-status .imp-pct");
         if (fill) fill.style.width = impPct + "%";
         if (pctEl) pctEl.textContent = Math.floor(impPct) + "%";
-        // 动态轮换提示文案，避免用户枯等
-        const tipEl = $("#import-status .imp-tip");
-        if (tipEl) {
-          tipIdx = (tipIdx + 1) % tips.length;
-          tipEl.textContent = tips[tipIdx];
+        // 动态轮换提示文案：每 6 个 tick（约 3.6 秒）换一条，保证用户能看清
+        tipTicks++;
+        if (tipTicks % 6 === 0) {
+          const tipEl = $("#import-status .imp-tip");
+          if (tipEl) {
+            tipIdx = (tipIdx + 1) % tips.length;
+            tipEl.textContent = tips[tipIdx];
+          }
         }
       }, 600);
       try {
@@ -3640,7 +3640,7 @@ const GUIDE_STEPS = [
   { id: "llm", num: "①", icon: "⚙️", title: "配置 LLM", desc: "出题 / 判分 / 面试考核都由 LLM 驱动，先配置 API Key（支持 DeepSeek、阿里百炼等）", jump: showSettings, jumpLabel: "去配置" },
   { id: "import", num: "②", icon: "📥", title: "导入学习资料", desc: "拖入笔记 / 代码 / 文档或文件夹，系统自动解析并生成 12 道考核题", jump: showImportPanel, jumpLabel: "去导入" },
   { id: "chapter", num: "③", icon: "📘", title: "章节考核", desc: "进「资料目录」选章节分阶段考核，优先夯实每章基础", jump: showLibrary, jumpLabel: "去章节" },
-  { id: "cross", num: "④", icon: "🎯", title: "综合考核", desc: "跨全部章节混合出题，检验整体掌握（理论 / 实战）", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去考核" },
+  { id: "cross", num: "④", icon: "🎯", title: "综合考核", desc: "聚合全部章节题库组卷，检验整体掌握（理论 / 实战）", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去考核" },
   { id: "interview", num: "⑤", icon: "💼", title: "面试考核", desc: "最后挑战：AI 面试官按岗位严格追问，检验综合表达", jump: startInterview, jumpLabel: "去面试" },
   { id: "profile", num: "⑥", icon: "🧬", title: "查看能力画像", desc: "10 维能力雷达 + 岗位匹配 + 等级称号，掌握强弱项并导出报告", jump: showAssessment, jumpLabel: "看画像" },
 ];
@@ -3718,7 +3718,7 @@ const TOUR_STEPS = [
   { icon: "⚙️", title: "第 1 步 · 配置 LLM", text: "出题、语义判分、岗位匹配都由 LLM 驱动。请先在「设置」中填入 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口），Key 仅保存在本机浏览器，不会上传服务器。", sel: 'button[onclick="showSettings()"]' },
   { icon: "📥", title: "第 2 步 · 导入学习资料", text: "点击「导入资料」，拖入笔记、代码、文档或整个文件夹，系统自动解析并生成考核题（选择 / 判断 / 填空 + 实战场景题）。", sel: 'button[onclick="showImportPanel()"]' },
   { icon: "📘", title: "第 3 步 · 章节考核（建议优先）", text: "进「资料目录」选择单个章节分阶段考核（理论 / 实战），先夯实每一章的基础，掌握局部再谈整体。", sel: 'button[onclick="showLibrary()"]' },
-  { icon: "🎯", title: "第 4 步 · 综合考核", text: "跨全部章节混合出题，检验整体掌握与遗忘点：📘 理论考核（客观题）+ 🛠️ 实战考核（场景决策 + 代码对比）。", sel: ".mode-grid" },
+  { icon: "🎯", title: "第 4 步 · 综合考核", text: "跨全部章节混合出题，检验整体掌握与遗忘点：📘 理论考核（客观题）+ 🛠️ 实战考核（代码实战客观题）。", sel: ".mode-grid" },
   { icon: "💼", title: "第 5 步 · 面试考核（最后挑战）", text: "选一个岗位（Agent 工程师 / RAG 工程师等 8 个方向），AI 面试官按岗位知识图谱严格追问、深挖、甚至提前结束面试。建议完成前两步考核后再来。", sel: '.mode-card[onclick="startInterview()"]' },
   { icon: "🧬", title: "第 6 步 · 查看能力画像", text: "完成考核后回到首页，可查看 10 维能力雷达图、岗位匹配度、等级称号，并导出评估报告。", sel: 'button[onclick="showAssessment()"]' },
   { icon: "🚀", title: "全部完成 🎉", text: "首页顶部常驻「快速开始」引导条会实时标记你的进度并推荐下一步；随时可点「新手引导演示」重看本教程。祝你试炼顺利！", sel: null },
