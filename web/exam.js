@@ -1087,7 +1087,8 @@ async function browserLLMGenerate(course, part) {
 
   // 实战硬校验仅在有代码文件时生效（纯笔记目录实战轮可返回空，不阻塞导入）
   // 理论 minAccept 8（考核一轮需要 8 道）：LLM 给不足 16 但 ≥8 时部分接受（宁缺毋滥，不空转重试）
-  const minCount = part === "theory" ? 16 : part === "practical" ? (hasCode ? 10 : 0) : (hasCode ? 26 : 16);
+  // 最低可用量门槛（宁缺毋滥）：单批 ≥8/5 即收，理想量 16/10 由导入主流程累积补足
+  const minCount = part === "theory" ? 8 : part === "practical" ? (hasCode ? 5 : 0) : (hasCode ? 13 : 8);
   const minAccept = part === "theory" ? 8 : minCount;
   const qs = await llmJSON({
     system: SYSTEM.examiner,
@@ -1306,27 +1307,19 @@ async function handleImportFileList(mdFiles) {
         const results = await Promise.allSettled(
           genParts.map((gp) => browserLLMGenerate(data.course, gp.key))
         );
-        // 任一请求失败或未返回题目 → 整体导入失败；例外：无代码目录下实战轮允许为空
-        const badIdx = results.findIndex((r, i) => {
-          if (r.status !== "fulfilled" || !r.value || !r.value.length) {
-            if (genParts[i].key === "practical" && !hasCode) return false;
-            return true;
-          }
-          return false;
-        });
-        if (badIdx >= 0) {
-          const bad = results[badIdx];
-          const reason = bad.status === "rejected" ? ((bad.reason || {}).message || "请求失败") : "未返回有效题目";
-          throw new Error("LLM 生成失败（" + genParts[badIdx].label + "）：" + reason);
+        // 只有请求被拒绝（LLM 真不可用 / 空响应重试耗尽）才整体失败；空数组交给下面的累积补足（宁缺毋滥：不差几道就全丢）
+        const hardFail = results.findIndex((r) => r.status === "rejected");
+        if (hardFail >= 0) {
+          const bad = results[hardFail];
+          throw new Error("LLM 生成失败（" + genParts[hardFail].label + "）：" + ((bad.reason || {}).message || "请求失败"));
         }
         let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
         const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
-        genParts.forEach((gp, i) => {
-          const stEl = partsBox ? partsBox.querySelector(`.imp-part[data-part="${gp.key}"] .imp-part-state`) : null;
-          const r = results[i];
+        // 挂库公共函数：去重 + 补全 + 入库（理论/实战补足共用）
+        const hangQ = (qs) => {
           let added = 0;
-          for (const q of r.value) {
-            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
+          for (const q of qs || []) {
+            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;
             q.id = nid++;
             q.source = "llm";
             if (!q.dimension) q.dimension = inferDimension(q);
@@ -1338,54 +1331,59 @@ async function handleImportFileList(mdFiles) {
             llmMade++;
             added++;
           }
+          return added;
+        };
+        genParts.forEach((gp, i) => {
+          const stEl = partsBox ? partsBox.querySelector(`.imp-part[data-part="${gp.key}"] .imp-part-state`) : null;
           const lblEl = partsBox ? partsBox.querySelector(`.imp-part[data-part="${gp.key}"] .imp-part-label`) : null;
+          const added = hangQ(results[i].value || []);
           if (lblEl) lblEl.textContent = "完成 " + added + " 道";
           if (stEl) stEl.textContent = "✅";
         });
-        // 实战题数量校验与补足：必须至少 10 道实战（llm_code 不强制，由考核阶段动态生成兜底）——纯 LLM 驱动，无引擎题
+        // 数量统计：理论/实战累积补足到理想量（16/10），最低可用量（8/5）才允许通过
+        const countTheory = () => (data.course.quiz || []).filter((q) => (q.dimension || inferDimension(q)) === "theory").length;
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
         const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
+        // 理论累积补足（目标 16；单批给 ≥8 即收，不足由这里补）
+        let thRetries = 0;
+        while (thRetries < 3 && countTheory() < 16) {
+          thRetries++;
+          const stElT = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-state`) : null;
+          if (stElT) stElT.textContent = "⏳ 补足理论（" + thRetries + "/3）…";
+          let extra = null;
+          try { extra = await browserLLMGenerate(data.course, "theory"); } catch (e) { await new Promise((r) => setTimeout(r, 800)); continue; }
+          if (!extra || !extra.length) break;
+          if (!hangQ(extra)) break;
+        }
+        // 实战累积补足（目标 10，有代码文件才补）
         let pracRetries = 0;
-        while (hasCode && pracRetries < 5 && countPrac() < 10) {
+        while (hasCode && pracRetries < 3 && countPrac() < 10) {
           pracRetries++;
-          const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
-          if (stElP) stElP.textContent = "⏳ 补充生成（" + pracRetries + "/5）…";
+          const stElP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
+          if (stElP) stElP.textContent = "⏳ 补足实战（" + pracRetries + "/3）…";
           let extra = null;
           try { extra = await browserLLMGenerate(data.course, "practical"); } catch (e) { await new Promise((r) => setTimeout(r, 800)); continue; }
           if (!extra || !extra.length) break;
-          let extraAdded = 0;
-          for (const q of extra) {
-            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;
-            q.id = nid++;
-            q.source = "llm";
-            if (!q.dimension) q.dimension = inferDimension(q);
-            q.interview = !!q.interview;
-            if (q.type === "essay" && !q.followUps) q.followUps = [];
-            normalizeLLMQuestion(q);
-            data.course.quiz.push(q);
-            seenTxt.add((q.question || "") + "|" + q.type);
-            llmMade++;
-            extraAdded++;
-          }
-          if (!extraAdded) break;
+          if (!hangQ(extra)) break;
         }
-        if (hasCode && countPrac() < 10) {
+        // 最低可用量校验：理论 <8 或（有代码时）实战 <5 才失败——保留目录不删，可补出题
+        if (countTheory() < 8 || (hasCode && countPrac() < 5)) {
           clearInterval(pTimer);
-          // 数量不足：失败但不删目录（保留后端已解析的资料与文件清单，避免用户资料被静默清空）
-          const err = new Error("实战题仅 " + countPrac() + " 道（不足 10 道，含写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标——本轮 LLM 题未保存，目录骨架已保留，请点「🤖 补出题」重新生成题目或重新导入");
+          const err = new Error("题目生成不足（理论 " + countTheory() + "/8 · 实战 " + countPrac() + "/5），目录已保留，可重新导入或点「🤖 补出题」");
           err.keepDir = true;
           throw err;
         }
-        const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
+        const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
         if (lblP) lblP.textContent = "完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
-        if (stElP) stElP.textContent = "✅";
-        // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
+        if (stElP2) stElP2.textContent = "✅";
+        const lblT = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-label`) : null;
+        if (lblT) lblT.textContent = "完成 " + countTheory() + " 道";
+        // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成）
         if (!llmMade) {
           clearInterval(pTimer);
           throw new Error("LLM 未返回有效题目");
-        }
-        await fetch("/api/course-save", {
+        }        await fetch("/api/course-save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ uid: UID, course: data.course, dirId: data.dir ? data.dir.id : null }),
