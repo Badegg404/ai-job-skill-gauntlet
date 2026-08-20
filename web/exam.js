@@ -1252,7 +1252,6 @@ async function handleImportFileList(mdFiles) {
     if (!data.ok) throw new Error(data.error || "导入失败");
 
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
-    let llmMade = 0;
     if (LLM_KEY && data.course) {
       setImportProgress(10, "🤖", "LLM 正在生成题目", "理论 + 实战并行 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（10→20→…→90），每 6 tick（约 3.6 秒）跳一档，匹配生成时长
@@ -1336,7 +1335,6 @@ async function handleImportFileList(mdFiles) {
             normalizeLLMQuestion(q);
             data.course.quiz.push(q);
             seenTxt.add((q.question || "") + "|" + q.type);
-            llmMade++;
             added++;
           }
           return added;
@@ -1378,7 +1376,6 @@ async function handleImportFileList(mdFiles) {
         if (countTheory() < 8 || (hasCode && countPrac() < 5)) {
           clearInterval(pTimer);
           const err = new Error("题目生成不足（理论 " + countTheory() + "/8 · 实战 " + countPrac() + "/5），目录已保留，可重新导入或点「🤖 补出题」");
-          err.keepDir = true;
           throw err;
         }
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
@@ -1387,11 +1384,7 @@ async function handleImportFileList(mdFiles) {
         if (stElP2) stElP2.textContent = "✅";
         const lblT = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-label`) : null;
         if (lblT) lblT.textContent = "完成 " + countTheory() + " 道";
-        // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成）
-        if (!llmMade) {
-          clearInterval(pTimer);
-          throw new Error("LLM 未返回有效题目");
-        }        await fetch("/api/course-save", {
+        await fetch("/api/course-save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ uid: UID, course: data.course, dirId: data.dir ? data.dir.id : null }),
@@ -1420,6 +1413,7 @@ async function handleImportFileList(mdFiles) {
           : msg;
         status.className = "parse-status err";
         status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。目录已保留（未删除），可重新导入或点「🤖 补出题」修复。`;
+        return;   // 阻止后续成功流程（COURSE 赋值 / 发 XP / status=ok 覆盖失败文案）
       }
     }
 
@@ -1663,6 +1657,12 @@ function showInterviewLoading(job, maxRounds, dims) {
     { text: "解析候选人学习资料与题库", status: "ANALYZING CANDIDATE MATERIALS" },
     { text: `规划 ${maxRounds} 轮考察维度`, status: "PLANNING EXAM DIMENSIONS" },
   ];
+  // 预生成第一题：走马灯期间并行出题（进面试间即见题，消除二次等待）
+  const st0 = interviewState;
+  if (st0 && !st0._preloading) {
+    st0._preloading = true;
+    runInterviewGraph(st0, "ask").catch(() => { st0._preloading = false; });
+  }
   let i = 0;
   const step = () => {
     if (i < steps.length) {
@@ -1736,10 +1736,26 @@ function renderInterviewChat() {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendInterviewMessage(); }
     });
   }
-  // 进入面试间后，面试官动态生成第一题
+  // 进入面试间后：预加载已完成（st.current 已有）→ 消息已渲染直接开始；预加载中 → 等它完成；失败/未开始 → 动态生成
   if (!st.roundStarted) {
     st.roundStarted = true;
-    generateNextQuestion();
+    if (st.current) {
+      // 预加载已完成：第一题消息已在 st.messages（上面 render 已全量显示）
+      scrollInterviewToBottom();
+    } else if (st._preloading) {
+      showInterviewTyping(true);
+      const waitFirst = () => {
+        if (st.current || !st._preloading) {
+          showInterviewTyping(false);
+          if (!st.current) generateNextQuestion();   // 预加载失败 → 重新出题
+        } else {
+          setTimeout(waitFirst, 400);
+        }
+      };
+      waitFirst();
+    } else {
+      generateNextQuestion();
+    }
   }
 }
 
@@ -1902,6 +1918,7 @@ const InterviewGraph = {
         }
       } finally {
         interviewBusyCount = Math.max(0, interviewBusyCount - 1);
+        st._preloading = false;   // 预生成第一题标记：ask 完成/失败即解除
       }
       return { next: "WAIT" };
     },
