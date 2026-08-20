@@ -18,10 +18,14 @@ function extractLLMQuestions(data) {
   const content = data.choices && data.choices[0] && data.choices[0].message
     ? data.choices[0].message.content : "";
   if (!content) return [];
+  // 剥 markdown 代码块（```json ... ``` / ``` ... ```），LLM 常把 JSON 包在代码块里
+  let c = content.trim();
+  const fence = c.match(/^```[a-zA-Z]*\s*([\s\S]*?)```\s*$/);
+  if (fence && fence[1].trim()) c = fence[1].trim();
   let parsed = null;
-  try { parsed = JSON.parse(content); } catch (e) { /* fallthrough */ }
+  try { parsed = JSON.parse(c); } catch (e) { /* fallthrough */ }
   if (!parsed) {
-    const m = content.match(/\{[\s\S]*\}/);
+    const m = c.match(/\{[\s\S]*\}/);
     if (m) {
       try { parsed = JSON.parse(m[0]); } catch (e) {
         // JSON 可能被 max_tokens 截断，尝试补全右括号/引号
@@ -30,12 +34,34 @@ function extractLLMQuestions(data) {
       }
     }
   }
-  const qs = (parsed && parsed.questions) ? parsed.questions : [];
+  // questions 可能不在顶层（如 {"data": {"questions": [...]} 或直接是数组）——递归查找含 question 的数组
+  let qs = (parsed && parsed.questions) ? parsed.questions : [];
+  if (!Array.isArray(qs) || !qs.length) {
+    qs = findQuestionsArray(parsed);
+  }
   // 逐题：归一化 → 校验，坏题直接丢弃（程序兜底 LLM 不可靠输出）
   return qs
     .filter((q) => q && q.question)
     .map(normalizeLLMQuestion)
     .filter(validateLLMQuestion);
+}
+
+function findQuestionsArray(obj, depth) {
+  // 递归找第一个「数组且元素带 question 字段」的结构（兼容嵌套/包装结构）
+  if (depth > 5 || !obj || typeof obj !== "object") return [];
+  if (Array.isArray(obj)) {
+    if (obj.length && obj[0] && obj[0].question) return obj;
+    for (const it of obj) {
+      const found = findQuestionsArray(it, (depth || 0) + 1);
+      if (found.length) return found;
+    }
+    return [];
+  }
+  for (const k of Object.keys(obj)) {
+    const found = findQuestionsArray(obj[k], (depth || 0) + 1);
+    if (found.length) return found;
+  }
+  return [];
 }
 
 /* 补全被 max_tokens 截断的 JSON：尝试补右括号与引号 */

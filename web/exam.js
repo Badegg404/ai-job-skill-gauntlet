@@ -995,7 +995,14 @@ async function browserLLMGenerate(course, part) {
 
   const data = await res.json();
   const qs = extractLLMQuestions(data);
-  reportDebug("llm-ok", { part, count: qs.length, rawLen: String(JSON.stringify(data)).length });
+  const rawContent = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+  reportDebug("llm-ok", {
+    part,
+    count: qs.length,
+    rawLen: rawContent.length,
+    // 解析出 0 题时把 LLM 原始内容前 1500 字落盘，精确定位格式/结构问题
+    ...(qs.length === 0 ? { contentHead: rawContent.slice(0, 1500) } : {}),
+  });
   return qs;
 }
 
