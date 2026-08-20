@@ -1427,7 +1427,6 @@ async function handleImportFileList(mdFiles) {
 
     // 奖励：XP + 记录（按实际导入的文件数）
     const fileCount = data.fileCount || 0;
-    const totalQ = data.totalQuestions || 0;
     const gain = 30 * Math.max(1, fileCount);
     state.imports = (state.imports || 0) + fileCount;
     state.xp += gain;
@@ -1447,12 +1446,13 @@ async function handleImportFileList(mdFiles) {
     }
     status.className = "parse-status ok";
     if (data.dir) {
-      const q = data.dir.course?.quiz || [];
+      // 用前端挂库后的实际题库统计（data.course.quiz 已含 LLM 题；data.dir.course 是后端挂库前数据，会显示 0 题）
+      const q = data.course?.quiz || [];
       const theoryN = q.filter((x) => (x.dimension || inferDimension(x)) === "theory").length;
       const pracN = q.filter((x) => (x.dimension || inferDimension(x)) === "practical").length;
       status.innerHTML = `
         ✅ 已创建章节目录「<strong style="color:var(--accent)">${esc(data.dir.title)}</strong>」<br>
-        📚 生成 <strong style="color:var(--accent)">${totalQ}</strong> 题（理论 ${theoryN} · 实战 ${pracN}）· ${fileCount} 个文件<br>
+        📚 生成 <strong style="color:var(--accent)">${q.length}</strong> 题（理论 ${theoryN} · 实战 ${pracN} · 面试 ${q.filter((x) => x.interview).length}）· ${fileCount} 个文件<br>
         ${dupCount ? `⚠️ 有 ${dupCount} 个文件重复，已跳过` : ""}
         ${dupRows}
         ${theoryWarn ? `<span style="color:#ffb84d">${theoryWarn}</span><br>` : ""}
