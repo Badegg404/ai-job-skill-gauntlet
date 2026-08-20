@@ -1029,9 +1029,9 @@ async function llmJSON(opts) {
     if (!rawContent.length) {
       reportDebug("llm-empty", { part, attempt });
       if (attempt >= 2) {
-        lastErr = new Error("LLM 返回空内容（服务可能限流），已重试 " + attempt + " 次");
-        reportDebug("llm-fail", { part, msg: lastErr.message });
-        throw lastErr;
+        // 服务限流：不再 throw（否则理论题会被实战空响应连坐全丢）——返回已有（宁缺毋滥），主流程软处理
+        reportDebug("llm-empty-final", { part });
+        return lastNonEmpty || [];
       }
       await new Promise((r) => setTimeout(r, 1500));
       continue;
@@ -1310,8 +1310,8 @@ async function handleImportFileList(mdFiles) {
         const results = await Promise.allSettled(
           genParts.map((gp) => browserLLMGenerate(data.course, gp.key))
         );
-        // 只有请求被拒绝（LLM 真不可用 / 空响应重试耗尽）才整体失败；空数组交给下面的累积补足（宁缺毋滥：不差几道就全丢）
-        const hardFail = results.findIndex((r) => r.status === "rejected");
+        // 只有理论轮请求被拒绝（LLM 真不可用）才整体失败；实战轮 rejected/空响应 → 视为空，由补足+软提示兜底（宁缺毋滥：理论保住，实战不足提示补）
+        const hardFail = results.findIndex((r, i) => r.status === "rejected" && genParts[i].key === "theory");
         if (hardFail >= 0) {
           const bad = results[hardFail];
           throw new Error("LLM 生成失败（" + genParts[hardFail].label + "）：" + ((bad.reason || {}).message || "请求失败"));
@@ -1346,34 +1346,30 @@ async function handleImportFileList(mdFiles) {
         const countTheory = () => (data.course.quiz || []).filter((q) => (q.dimension || inferDimension(q)) === "theory").length;
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
         const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
-        // 理论累积补足（目标 16；单批给 ≥8 即收，不足由这里补）
-        let thRetries = 0;
-        while (thRetries < 3 && countTheory() < 16) {
-          thRetries++;
-          const stElT = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-state`) : null;
-          if (stElT) stElT.textContent = "⏳ 补足理论（" + thRetries + "/3）…";
-          let extra = null;
-          try { extra = await browserLLMGenerate(data.course, "theory"); } catch (e) { await new Promise((r) => setTimeout(r, 800)); continue; }
-          if (!extra || !extra.length) break;
-          if (!hangQ(extra)) break;
-        }
-        // 实战累积补足（目标 10，有代码文件才补）
-        let pracRetries = 0;
-        while (hasCode && pracRetries < 3 && countPrac() < 10) {
-          pracRetries++;
-          const stElP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
-          if (stElP) stElP.textContent = "⏳ 补足实战（" + pracRetries + "/3）…";
-          let extra = null;
-          try { extra = await browserLLMGenerate(data.course, "practical"); } catch (e) { await new Promise((r) => setTimeout(r, 800)); continue; }
-          if (!extra || !extra.length) break;
-          if (!hangQ(extra)) break;
-        }
-        // 最低可用量校验：理论 <8 或（有代码时）实战 <5 才失败——保留目录不删，可补出题
-        if (countTheory() < 8 || (hasCode && countPrac() < 5)) {
+        // 累积补足（并行版）：每轮同时补理论 + 实战（各 1 批），直到理想量（理论 16 / 实战 10）达标
+        // 或 LLM 无法再产出（空响应/全重复 → 该方向停）；最多 6 轮防失控
+        let topRound = 0;
+        let thStuck = false, pracStuck = false;
+        while (topRound < 6 && !(thStuck && (pracStuck || !hasCode || countPrac() >= 10)) && (countTheory() < 16 || (hasCode && countPrac() < 10))) {
+          topRound++;
+          const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(data.course, "theory").catch(() => null) : Promise.resolve(null);
+          const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(data.course, "practical").catch(() => null) : Promise.resolve(null);
+          const stElT2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="theory"] .imp-part-state`) : null;
+          const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
+          if (stElT2 && thJob) stElT2.textContent = "⏳ 补足理论（" + topRound + "/6）…";
+          if (stElP2 && pracJob) stElP2.textContent = "⏳ 补足实战（" + topRound + "/6）…";
+          const [thRes, pracRes] = await Promise.all([thJob, pracJob]);
+          if (thRes !== null) { if (!thRes || !thRes.length) thStuck = true; else if (!hangQ(thRes)) thStuck = true; }
+          if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
+        }        // 理论 <8 才失败（理论是考核刚需）；实战不足（有代码时）不失败——宁缺毋滥：收下已有，提示补出题
+        if (countTheory() < 8) {
           clearInterval(pTimer);
-          const err = new Error("题目生成不足（理论 " + countTheory() + "/8 · 实战 " + countPrac() + "/5），目录已保留，可重新导入或点「🤖 补出题」");
+          const err = new Error("理论题不足（" + countTheory() + "/8），目录已保留，可重新导入或点「🤖 补出题」");
           throw err;
         }
+        const pracWarn = hasCode && countPrac() < 5
+          ? "；实战题仅 " + countPrac() + " 道（不足 5，LLM 服务可能限流），可点「🤖 补出题」补足"
+          : "";
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
         if (lblP) lblP.textContent = "完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
@@ -1446,6 +1442,7 @@ async function handleImportFileList(mdFiles) {
         📚 生成 <strong style="color:var(--accent)">${totalQ}</strong> 题（理论 ${theoryN} · 实战 ${pracN}）· ${fileCount} 个文件<br>
         ${dupCount ? `⚠️ 有 ${dupCount} 个文件重复，已跳过` : ""}
         ${dupRows}
+        ${pracWarn ? `<span style="color:#ffb84d">${pracWarn}</span><br>` : ""}
         ⭐ 获得 ${gain} XP 奖励（累计导入 ${state.imports} 份资料）`;
     } else {
       status.innerHTML = `
@@ -2083,8 +2080,9 @@ function chooseInterviewOption(i) {
   const label = opts[i] || (String.fromCharCode(65 + i));
   appendInterviewMessage("candidate", String.fromCharCode(65 + i) + ". " + label.replace(/^[A-D][.、)]\s*/, ""));
   // 选择题程序判对错：立即反馈（correctIndex 比对，不依赖 LLM）
-  const ci = Array.isArray(st.current.correctIndex) ? st.current.correctIndex[0] : st.current.correctIndex;
-  if (typeof ci === "number" && st.current.options && st.current.options.length) {
+  const ciRaw = Array.isArray(st.current.correctIndex) ? st.current.correctIndex[0] : st.current.correctIndex;
+  const ci = Number.isFinite(Number(ciRaw)) ? Number(ciRaw) : null;   // 容错：LLM 可能返回字符串 "1"
+  if (ci !== null && st.current.options && st.current.options.length) {
     appendInterviewMessage("interviewer", i === ci ? "✅ 选对了，我们深入一下。" : "❌ 不完全对，我们换个角度看看。", "判分");
   }
   // 恢复输入框（下一题若是选择题会再次置灰）
@@ -2193,7 +2191,7 @@ function renderInterviewResult(result) {
     failed: scoreFailed,
     dimensions: (result && result.dimensions) || [],
     overall: (result && result.overall) || "",
-    qa: st.history.map((h) => ({ q: h.question, a: h.answer, weak: !!h.weak })),
+    qa: st.history.map((h) => ({ q: h.isFollowup ? (h.followupText || h.question) : h.question, a: h.answer, weak: !!h.weak, followup: !!h.isFollowup })),
   });
   state.interviewLogs = state.interviewLogs.slice(0, 50);
   saveState();
@@ -3880,7 +3878,7 @@ function showInterviewHistory() {
       <div style="margin-top:8px;font-size:12px;line-height:1.8;color:var(--text-1)">
         ${log.qa.map((qa, qi) => `
         <div style="padding:8px 0;border-bottom:1px dashed var(--border)">
-          <div style="color:#ffb84d">Q${qi + 1}. ${esc(qa.q)}</div>
+          <div style="color:#ffb84d">${qa.followup ? "↳ 追问" : "Q" + (qi + 1)}. ${esc(qa.q)}</div>
           <div style="color:var(--text-2);margin-top:3px">A. ${esc(qa.a)}${qa.weak ? ` <span style="color:#ff6b6b">（弱回答）</span>` : ""}</div>
         </div>`).join("")}
       </div></details>` : ""}

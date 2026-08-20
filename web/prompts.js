@@ -403,9 +403,9 @@ ${answeredTxt}
    - scenario：给出一个真实业务/生产场景，让候选人决策或排障（默认首选，最能考察真实能力）
    - essay：开放式问答（讲清原理与权衡）
    - code：给出一段代码或让候选人描述实现/找 bug
-   - choice：一道 4 选 1 的选择题（options 为 4 个选项）
+   - choice：一道 4 选 1 的选择题（options 为 4 个选项，correctIndex 填正确选项下标 0-3，供程序判对错）
 5. 只输出 JSON：
-{"type": "essay|scenario|code|choice", "question": "面试官提出的问题（自然、口语化，像真人面试）", "dimension": "维度名（只能从：${ABILITY_WHITELIST} 中选）", "options": ["A...", "B...", "C...", "D..."]}`;
+{"type": "essay|scenario|code|choice", "question": "面试官提出的问题（自然、口语化，像真人面试）", "dimension": "维度名（只能从：${ABILITY_WHITELIST} 中选）", "options": ["A...", "B...", "C...", "D..."], "correctIndex": 0}`;
 }
 
 function buildInterviewFollowPrompt(st, q, curQuestion, ans, tactics) {
