@@ -162,7 +162,25 @@ let beforeRankIdx = 0;      // 本次考核前的境界序号（用于检测境�
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return [...document.querySelectorAll(sel)]; }
 function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
+/* S-1 加固：JS 字符串字面量安全转义（用于 onclick 内联传参）。
+ * esc 只做 HTML 转义；onclick 属性内的 HTML 实体会被浏览器解码还原，
+ * 故这里必须补转义：反斜杠、单引号、换行、</script> 与实体还原。 */
 function shuffle(arr) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+function jsStr(s) {
+  return String(s == null ? "" : s)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/"/g, "\\u0022");
+}
 
 function loadState() {
   try {
@@ -3116,7 +3134,7 @@ async function showLibrary() {
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="font-size:22px">📚</span>
             <span style="font-size:16px;font-weight:800;color:var(--text-0)">${esc(d.title)}</span>
-            <button class="exam-btn ghost" style="padding:4px 10px;font-size:11.5px" onclick="renameDir('${d.id}', '${esc(d.title).replace(/'/g, "\\'")}')">✏️ 改名</button>
+            <button class="exam-btn ghost" style="padding:4px 10px;font-size:11.5px" onclick="renameDir('${d.id}', '${jsStr(d.title)}')">✏️ 改名</button>
           </div>
           <div style="font-size:12px;color:var(--text-2);margin-top:6px;font-family:var(--mono)">
             ${d.fileCount} 个文件 · ${d.quizCount} 题（理论 ${d.theoryCount} · 实战 ${d.practicalCount} · 面试 ${d.interviewCount}）
@@ -3160,7 +3178,7 @@ async function showDirDetail(dirId) {
         <div style="font-size:13.5px;color:var(--text-0);word-break:break-all">${f.kind === "note" ? "📄" : f.kind === "code" ? "💻" : "📊"} ${esc(f.filename)}</div>
         <div style="font-size:11px;color:var(--text-2);margin-top:2px">贡献 ${f.questionCount || 0} 题</div>
       </div>
-      <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4);padding:5px 12px;font-size:12px" onclick="deleteDirFile('${dirId}', '${esc(f.filename).replace(/'/g, "\\'")}')">🗑️ 删除</button>
+      <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4);padding:5px 12px;font-size:12px" onclick="deleteDirFile('${dirId}', '${jsStr(f.filename)}')">🗑️ 删除</button>
     </div>`).join("");
 
   render(null, `
@@ -3182,7 +3200,7 @@ async function showDirDetail(dirId) {
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="exam-btn primary" onclick="startDirExam('${dirId}', 'theory')">📘 理论考核</button>
         <button class="exam-btn" onclick="startDirExam('${dirId}', 'practical')">🛠️ 实战考核</button>
-        <button class="exam-btn ghost" onclick="renameDir('${dirId}', '${esc(dd.title).replace(/'/g, "\\'")}')">✏️ 改名</button>
+        <button class="exam-btn ghost" onclick="renameDir('${dirId}', '${jsStr(dd.title)}')">✏️ 改名</button>
       </div>
     </div>
 
@@ -3228,7 +3246,13 @@ async function handleDirFileAdd(fileList, dirId) {
   const data = await res.json();
   if (data.ok) {
     const dupN = (data.duplicates || []).length;
-    showToast(`✅ 追加 ${data.added} 个文件${dupN ? ` · ${dupN} 个重复跳过` : ""}`);
+    const errN = (data.errors || []).length;
+    // D-8：追加文件有解析失败时明确提示（不再静默）
+    showToast(`✅ 追加 ${data.added} 个文件${dupN ? ` · ${dupN} 个重复跳过` : ""}${errN ? ` · ⚠️ ${errN} 个解析失败` : ""}`);
+    if (errN) {
+      const names = (data.errors || []).map((e) => e.filename).join("、");
+      showModal({ icon: "⚠️", title: "部分文件解析失败", text: `以下文件未能生成题目：${names}。请检查内容格式后重试。`, actions: [{ label: "知道了", primary: true, onClick: () => {} }] });
+    }
     showDirDetail(dirId);
   } else {
     showToast("❌ 追加失败：" + (data.error || ""));

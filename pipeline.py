@@ -29,7 +29,8 @@ def auto_dir_title(files):
     return "未命名目录"
 
 
-def build_dir_from_files(uid, files, api_key=None, api_base=None, model=None):
+# Q-2 修复：删掉从未使用的 api_base/model 死参数（api_key 仍用于 source.llmEnabled 标记）
+def build_dir_from_files(uid, files, api_key=None):
     """一次导入 = 一个章节目录：合并所有文件，返回 (dir_data, duplicates, errors)。
 
     files: [{filename, md, kind}]
@@ -76,7 +77,7 @@ def build_dir_from_files(uid, files, api_key=None, api_base=None, model=None):
             kind = "text"
         if is_note:
             try:
-                course, engine_qs, llm_qs = build_course_from_md(uid, md, filename, api_key, api_base, model)
+                course, engine_qs, llm_qs = build_course_from_md(uid, md, filename, api_key)
                 for q in course.get("quiz", []):
                     q["fromFile"] = filename
                 note_courses.append((filename, course))
@@ -393,7 +394,8 @@ def process_aux_file(filename, content, qid_start=3000):
     return aux_questions, aux_material
 
 
-def build_course_from_md(uid, md, filename, api_key=None, api_base=None, model=None):
+# Q-2 修复：删掉从未使用的 api_base/model 死参数（api_key 仍用于 source.llmEnabled 标记）
+def build_course_from_md(uid, md, filename, api_key=None):
     """完整流水线：解析笔记 → 返回课程 JSON。
 
     出题由前端 LLM 完成（浏览器直连，key 不出服务器）；后端只做解析与数据结构整理。

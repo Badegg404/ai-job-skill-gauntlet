@@ -2,6 +2,10 @@
  * 覆盖：客观题判分、判断题归一化、坏题校验、截断 JSON 补全 */
 "use strict";
 
+/* 维度归类（D-2 设计说明）：essay（问答题）有意归入 interview 维度——
+ * 理论考核只出客观题（choice/multi_choice/true_false/fill_blank）、实战考核只出
+ * practical，问答题走「面试考核」的动态出题（LLM 生成 essay 题）与错题本回顾，
+ * 不参与理论/实战客观卷。 */
 function inferDimension(q) {
   if (q.type === "practical") return "practical";
   if (q.interview || q.type === "essay") return "interview";

@@ -177,5 +177,23 @@ class TestParseRobustness(unittest.TestCase):
         self.assertEqual(cho[0]["correctIndex"], [3])
 
 
+class TestTableParsing(unittest.TestCase):
+    """D-7：表格解析不再硬编码跳过第 2 行"""
+
+    def _parse(self, rows):
+        from note_parser import parse_table
+        return parse_table(rows)
+
+    def test_with_separator(self):
+        header, data = self._parse(["| 名称 | 值 |", "| --- | --- |", "| a | 1 |", "| b | 2 |"])
+        self.assertEqual(len(data), 2)
+
+    def test_without_separator(self):
+        """无分隔行的表格不丢第一行数据（历史 bug：rows[2:] 丢一行）"""
+        header, data = self._parse(["| 名称 | 值 |", "| a | 1 |", "| b | 2 |"])
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["名称"], "a")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

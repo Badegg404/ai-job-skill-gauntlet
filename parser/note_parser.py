@@ -77,8 +77,10 @@ def parse_table(lines):
     if not rows:
         return [], []
     header = [strip_md(c) for c in rows[0]]
+    # D-7 修复：检测分隔行（| --- | --- |）再跳过，无分隔行的表格不丢第一行数据
+    start = 2 if len(rows) >= 2 and re.match(r'^[\s|:+-]+$', rows[1][0] if rows[1] else "") and len(rows[1]) == len(rows[0]) else 1
     data = []
-    for r in rows[2:]:  # skip separator row
+    for r in rows[start:]:
         if len(r) < len(header):
             r = r + [''] * (len(header) - len(r))
         data.append({header[i]: strip_md(r[i]) for i in range(len(header))})

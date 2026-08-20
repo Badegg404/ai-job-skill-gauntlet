@@ -582,8 +582,6 @@ class CourseHandler(SimpleHTTPRequestHandler):
         dir_id = data.get("id", "")
         files = data.get("files", [])
         api_key = data.get("apiKey") or None
-        api_base = data.get("apiBase") or None
-        model = data.get("model") or None
         dd = load_dir(uid, dir_id)
         if dd is None:
             self._send_json({"error": "目录不存在"}, 404)
@@ -595,6 +593,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
         # 对每个文件查重（本目录 + 其他目录）
         duplicates = []
         added = []
+        errors = []   # D-8 修复：收集解析失败的文件，不再静默吞错
         existing_files = {f.get("filename") for f in dd.get("files", [])}
         existing_hashes = {f.get("hash") for f in dd.get("files", [])}
         course = dd.get("course") or {}
@@ -630,11 +629,13 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 kind = "text"
             if is_note:
                 try:
-                    c, _, _ = build_course_from_md(uid, md, filename, api_key, api_base, model)
+                    c, _, _ = build_course_from_md(uid, md, filename, api_key)
                     for q in c.get("quiz", []):
                         q["fromFile"] = filename
                         course.setdefault("quiz", []).append(q)
                 except Exception as e:
+                    # D-8 修复：收集错误并返回给前端，用户能看到「某文件解析失败」
+                    errors.append({"filename": filename, "error": str(e)})
                     continue
             else:
                 aux_qs, material = process_aux_file(filename, md, qid)
@@ -665,7 +666,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
             })
         dd["course"] = course
         save_dir(uid, dd)
-        self._send_json({"ok": True, "duplicates": duplicates, "added": len(added), "quizCount": len(course.get("quiz", []))})
+        self._send_json({"ok": True, "duplicates": duplicates, "added": len(added), "quizCount": len(course.get("quiz", [])), "errors": errors})
 
     # ---- 导入 ----
     def _handle_import(self):
@@ -680,13 +681,11 @@ class CourseHandler(SimpleHTTPRequestHandler):
         md = data.get("md", "")
         filename = data.get("filename", "note.md")
         api_key = data.get("apiKey") or None
-        api_base = data.get("apiBase") or None
-        model = data.get("model") or None
         if not md.strip():
             self._send_json({"error": "md 内容为空"}, 400)
             return
         try:
-            course, engine_questions, llm_questions = build_course_from_md(uid, md, filename, api_key, api_base, model)
+            course, engine_questions, llm_questions = build_course_from_md(uid, md, filename, api_key)
             summary = course_summary(course)
             d = ensure_user(uid)
 
@@ -726,8 +725,6 @@ class CourseHandler(SimpleHTTPRequestHandler):
             return
         files = data.get("files", [])
         api_key = data.get("apiKey") or None
-        api_base = data.get("apiBase") or None
-        model = data.get("model") or None
         if not files:
             self._send_json({"error": "没有可导入的资料"}, 400)
             return
@@ -735,7 +732,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
         d = ensure_user(uid)
         try:
             # 一次导入 = 一个章节目录（合并所有文件）
-            dir_data, duplicates, errors, aux_summary = build_dir_from_files(uid, files, api_key, api_base, model)
+            dir_data, duplicates, errors, aux_summary = build_dir_from_files(uid, files, api_key)
 
             # 全部文件重复/为空 → 不创建目录，直接返回重复信息
             if dir_data is None:

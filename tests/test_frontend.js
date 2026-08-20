@@ -359,6 +359,22 @@ test("考核界面与面试界面提供退出按钮", () => {
   assert.ok(iv.includes('onclick="quitInterview()"'), "面试界面应含退出按钮");
 });
 
+console.log("\n== S-1 onclick 注入加固 ==");
+test("jsStr 转义 JS 字符串字面量（S-1）", () => {
+  assert.strictEqual(raw("jsStr(\"a'b\")"), "a\\'b", "单引号应转义");
+  const s2 = raw("jsStr('a\\\\b')");
+  assert.ok(s2.includes("\\\\"), "反斜杠应转义");
+  const s3 = raw("jsStr('</script>')");
+  assert.ok(!s3.includes("</script>"), "应阻断 script 标签");
+  const s4 = raw("jsStr('a\\nb')");
+  assert.ok(!s4.includes("\n"), "换行应转义为字面");
+});
+test("onclick 注入点全部改用 jsStr（S-1）", () => {
+  const src = raw("showLibrary.toString()") + raw("showDirDetail.toString()");
+  assert.ok(!src.includes("replace(/'/g"), "不应再出现旧拼接写法");
+  assert.ok(src.includes("jsStr("), "应使用 jsStr 转义");
+});
+
 console.log("\n== 反馈驱动出题优化 ==");
 test("adaptivePick 剔除被反馈的坏题", () => {
   raw("state.questionFlags = [{ q: '坏题A', flag: '答案有误' }];");
