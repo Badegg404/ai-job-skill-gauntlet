@@ -1952,17 +1952,16 @@ async function loadAllDirCourses() {
   return courses;
 }
 
-/* 高级加载动画：终端 HUD 风格（理论/实战考核共用，区分 LLM / 纯规则模式） */
+/* 高级加载动画：终端 HUD 风格（理论/实战考核共用）——考核强制要求 LLM，引擎恒为 AI-AUGMENTED */
 function showExamLoading(mode) {
   const label = mode === "theory" ? "THEORY EXAM" : "PRACTICAL EXAM";
-  const hasLLM = !!LLM_KEY;
-  const engineTag = hasLLM ? "AI-AUGMENTED" : "RULE-BASED";
+  const engineTag = "AI-AUGMENTED";   // startExam/startDirExam 已拦截无 LLM，恒为增强模式
   render(null, `
     <div class="card exam-loading">
       <div class="el-head">
         <span class="el-title"><span class="logo-cursor">&gt;_</span> EXAM ENGINE <span class="el-mode">[${label}]</span></span>
         <span class="el-tagbox">
-          <span class="el-engine ${hasLLM ? "llm" : ""}">${engineTag}</span>
+          <span class="el-engine llm">${engineTag}</span>
           <span class="el-spinner"></span>
         </span>
       </div>
@@ -1988,15 +1987,19 @@ function showExamLoading(mode) {
       const bar = $("#exam-loading-bar");
       if (bar) bar.style.width = Math.max(0, Math.min(100, pct)) + "%";
     },
+    // LLM 调用期间缓慢推进伪进度（避免进度条静止让用户以为卡死）
+    autoProgress(from, to, stepMs) {
+      let p = from;
+      const t = setInterval(() => {
+        p = Math.min(to, p + 0.8);
+        this.setProgress(p);
+      }, stepMs || 300);
+      return () => clearInterval(t);
+    },
   };
-  if (hasLLM) {
-    api.log("初始化出题引擎 v2.0");
-    api.log("加载 LLM 出题模块");
+  api.log("读取本地题库目录");
+    api.log("准备连接 LLM 组卷");
     api.setStatus("INITIALIZING ENGINE + LLM AUGMENTATION");
-  } else {
-    api.log("初始化规则出题引擎 v2.0");
-    api.setStatus("INITIALIZING RULE-BASED ENGINE");
-  }
   api.setProgress(6);
   // 记录开始时间，用于保证动画至少展示一小段（本地加载太快会一闪而过）
   const startTime = Date.now();
@@ -2007,6 +2010,8 @@ function showExamLoading(mode) {
       await new Promise((r) => setTimeout(r, MIN_SHOW - elapsed));
     }
     api.setProgress(100);
+    const el = $("#exam-loading-text");
+    if (el) el.innerHTML = "✅ 试卷就绪";
   };
   return api;
 }
@@ -2051,33 +2056,41 @@ function startExam(mode) {
     // LLM 从全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
     loading.log("LLM 从全题库动态挑选组卷");
     loading.setStatus("LLM 正在从题库组卷");
+    const stopP1 = loading.autoProgress(60, 74);
     const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 16, "cross");
+    stopP1();
+    loading.setProgress(75);
     filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 30 : 16);
-    loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
-    loading.setProgress(60);
+    loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
     if (!filtered.length) {
       showToast("⚠️ 暂无题目，请先导入资料");
       goHome();
       return;
     }
-    // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
-    if (LLM_KEY) {
-      loading.log("调用 LLM 补充生成新题");
-      loading.setStatus("LLM 补充生成新题");
-      loading.setProgress(75);
+    // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
+    if (LLM_KEY && filtered.length < (mode === "theory" ? 30 : 16)) {
+      const need = (mode === "theory" ? 30 : 16) - filtered.length;
+      loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
+      loading.setStatus("LLM 动态补充缺题");
+      const stopP2 = loading.autoProgress(75, 94);
       try {
-        const dyn = await llmExamQuestions(courses, mode, 8);
+        const dyn = await llmExamQuestions(courses, mode, need);
         if (seq !== examSeq) return;
-        filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 30 : 16);
-      } catch (e) { /* 忽略，继续用题库题 */ }
+        if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 30 : 16);
+      } catch (e) { /* 忽略 */ } finally {
+        stopP2();
+        loading.setProgress(95);
+      }
+    } else {
+      loading.setProgress(95);
     }
     // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
+    loading.log("注入回顾题（错题间隔重考）");
     filtered = injectReviewQuestions(filtered, mode);
     // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
     filtered = filtered.filter((q) => mode === "theory"
       ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
       : q.type === "practical");
-    loading.log("注入回顾题（错题间隔重考）");
     loading.setProgress(95);
     await loading.finish();   // 确保动画至少展示一小段，避免本地加载太快一闪而过
     quiz = filtered;
@@ -3472,29 +3485,37 @@ async function startDirExam(dirId, mode) {
   // LLM 从本章节全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
   loading.log("LLM 从本章题库动态挑选组卷");
   loading.setStatus("LLM 正在从本章题库组卷");
+  const stopP1 = loading.autoProgress(60, 74);
   const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 8, "chapter");
+  stopP1();
+  loading.setProgress(75);
   filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 15 : 8);
-  loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
-  loading.setProgress(60);
+  loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
-  // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
-  if (LLM_KEY) {
-    loading.log("调用 LLM 补充生成新题");
-    loading.setStatus("LLM 补充生成新题");
-    loading.setProgress(75);
+  // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
+  if (LLM_KEY && filtered.length < (mode === "theory" ? 15 : 8)) {
+    const need = (mode === "theory" ? 15 : 8) - filtered.length;
+    loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
+    loading.setStatus("LLM 动态补充缺题");
+    const stopP2 = loading.autoProgress(75, 94);
     try {
-      const dyn = await llmExamQuestions([dd.course], mode, 6);
+      const dyn = await llmExamQuestions([dd.course], mode, need);
       if (seq !== examSeq) return;
-      filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
-    } catch (e) { /* 忽略 */ }
+      if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 15 : 8);
+    } catch (e) { /* 忽略 */ } finally {
+      stopP2();
+      loading.setProgress(95);
+    }
+  } else {
+    loading.setProgress(95);
   }
   // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
+  loading.log("注入回顾题（错题间隔重考）");
   filtered = injectReviewQuestions(filtered, mode);
   // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
   filtered = filtered.filter((q) => mode === "theory"
     ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
     : q.type === "practical");
-  loading.log("注入回顾题（错题间隔重考）");
   loading.setProgress(95);
   await loading.finish();   // 确保动画至少展示一小段
   quiz = filtered;
