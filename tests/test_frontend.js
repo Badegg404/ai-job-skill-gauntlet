@@ -422,6 +422,19 @@ test("综合考核题量翻倍于章节（30:16 vs 15:8）", () => {
   assert.ok(se.includes('"cross"'), "综合考核传 cross 场景");
   assert.ok(sd.includes('"chapter"'), "章节考核传 chapter 场景");
 });
+test("llmPickQuestions 容错：字符串编号归一化 + 不足补齐", () => {
+  const src = raw("llmPickQuestions.toString()");
+  assert.ok(src.includes("Number(i)"), "字符串编号应归一化");
+  assert.ok(src.includes("uniq.length < count"), "不足 count 应补齐");
+  assert.ok(src.includes("slice(0, 100)"), "候选题上限放宽到 100");
+});
+test("组卷流程：LLM 吃全题库，adaptivePick 只做回退", () => {
+  const se = raw("startExam.toString()");
+  const iLlm = se.indexOf("llmPickQuestions(filtered, mode");
+  const iFallback = se.indexOf("adaptivePick(filtered, mode");
+  assert.ok(iLlm >= 0 && iFallback >= 0, "LLM 挑选与程序回退都应存在");
+  assert.ok(iLlm < iFallback, "LLM 先挑全题库、adaptivePick 兜底");
+});
 
 console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
 test("技术徽章覆盖全部 10 个能力维度", () => {

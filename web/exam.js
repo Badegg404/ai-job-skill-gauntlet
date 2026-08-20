@@ -303,7 +303,7 @@ async function llmPickQuestions(pool, mode, count, scope) {
   // scope: "chapter"（章节考核，从本章题库挑、聚焦本章）| "cross"（综合考核，从全题库挑、跨章节覆盖）
   if (!LLM_KEY || !pool || pool.length < count) return null;
   const NL = String.fromCharCode(10);
-  const brief = pool.slice(0, 60).map((q, i) =>
+  const brief = pool.slice(0, 100).map((q, i) =>
     i + "｜[" + q.type + "] " + String(q.question || "").slice(0, 60) + "（维度:" + (q.ability || "?") + " 难度:" + (q.difficulty || 2) + "）"
   ).join(NL);
   const modeLabel = mode === "theory" ? "理论" : "实战";
@@ -332,10 +332,15 @@ async function llmPickQuestions(pool, mode, count, scope) {
       if (a >= 0 && b > a) try { parsed = JSON.parse(content.slice(a, b + 1)); } catch (e2) {}
     }
     const picks = Array.isArray(parsed && parsed.picks)
-      ? parsed.picks.filter((i) => typeof i === "number" && Number.isInteger(i) && i >= 0 && i < pool.length)
+      ? parsed.picks.map((i) => Number(i)).filter((i) => Number.isInteger(i) && i >= 0 && i < pool.length)
       : [];
     const uniq = Array.from(new Set(picks)).slice(0, count);
-    if (uniq.length < 2) return null;
+    if (!uniq.length) return null;
+    // 不足 count 时从池中补齐（保证试卷题量完整，不缩水）
+    const pickedSet = new Set(uniq);
+    for (let i = 0; i < pool.length && uniq.length < count; i++) {
+      if (!pickedSet.has(i)) { uniq.push(i); pickedSet.add(i); }
+    }
     return uniq.map((i) => pool[i]);
   } catch (e) { return null; }
 }
@@ -1110,14 +1115,13 @@ async function handleImportFileList(mdFiles) {
       }, 500);
       try {
         // 多轮生成（每轮 18 道，全部挂进本目录题库，去重累积）——按章节目录存储题库
-        const existingIds = new Set((data.course.quiz || []).map((q) => q.id));
-        let nid = Math.max(...(data.course.quiz || []).map((q) => q.id), 9000) + 1;
+        // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
+        let nid = 200000 + (Date.now() % 100000);
         for (let rnd = 0; rnd < 2; rnd++) {
           const llmQ = await browserLLMGenerate(data.course, payload);
           if (!llmQ || !llmQ.length) continue;
           const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
           for (const q of llmQ) {
-            if (q.id !== undefined && existingIds.has(q.id)) continue;
             if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
             q.id = nid++;
             q.source = "llm";
@@ -2015,15 +2019,18 @@ function startExam(mode) {
         }
       }
     }
-    filtered = adaptivePick(filtered, mode === "theory" ? 30 : 16);
-    loading.log("自适应抽题 → " + filtered.length + " 题（全题库聚合 + 薄弱维度加权 + 难度浮动）");
+    // LLM 从全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
+    loading.log("LLM 从全题库动态挑选组卷");
+    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 16, "cross");
+    filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 30 : 16);
+    loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
     loading.setProgress(60);
     if (!filtered.length) {
       showToast("⚠️ 暂无题目，请先导入资料");
       goHome();
       return;
     }
-    // LLM 动态出题混入（失败不影响题库题）
+    // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
     if (LLM_KEY) {
       loading.log("调用 LLM 动态生成场景题");
       loading.setStatus("LLM 动态出题中");
@@ -2034,10 +2041,6 @@ function startExam(mode) {
         filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 30 : 16);
       } catch (e) { /* 忽略，继续用题库题 */ }
     }
-    // LLM 从题库/候选池动态挑选组卷（维度多样 + 难度适配 + 不雷同；失败回退程序抽题）
-    loading.log("LLM 从题库动态挑选组卷");
-    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 16, "cross");
-    if (llmPicked && llmPicked.length) filtered = llmPicked;
     // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
     filtered = injectReviewQuestions(filtered, mode);
     // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
@@ -3146,11 +3149,10 @@ async function reGenerateQuestions(dirId) {
       showToast("⚠️ LLM 未返回有效题目，请检查 Key 或稍后重试");
       return;
     }
-    const existingIds = new Set((course.quiz || []).map((q) => q.id));
-    let nid = Math.max(...(course.quiz || []).map((q) => q.id), 9000) + 1;
+    // ⑥ 修复：LLM 题 id 用全局近似唯一起点（原 existingIds 去重为死逻辑，已删除）
+    let nid = 200000 + (Date.now() % 100000);
     let added = 0;
     for (const q of llmQ) {
-      if (q.id !== undefined && existingIds.has(q.id)) continue;
       q.id = nid++;
       q.source = "llm";
       if (!q.dimension) q.dimension = inferDimension(q);
@@ -3437,11 +3439,14 @@ async function startDirExam(dirId, mode) {
   if (!filtered.length) {
     filtered = dirQuiz.filter((q) => (mode === "theory" ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type) : q.type === "practical"));
   }
-  filtered = adaptivePick(filtered, mode === "theory" ? 15 : 8);
-  loading.log("自适应抽题 → " + filtered.length + " 题（本目录题库 + 薄弱维度加权）");
+  // LLM 从本章节全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
+  loading.log("LLM 从本章题库动态挑选组卷");
+  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 8, "chapter");
+  filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 15 : 8);
+  loading.log("组卷完成 → " + filtered.length + " 题（LLM 挑选 / 程序兜底）");
   loading.setProgress(60);
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
-  // LLM 动态出题混入（失败不影响题库题）
+  // LLM 动态出题混入（新题补充新鲜感，失败不影响题库题）
   if (LLM_KEY) {
     loading.log("调用 LLM 动态生成场景题");
     loading.setStatus("LLM 动态出题中");
@@ -3452,10 +3457,6 @@ async function startDirExam(dirId, mode) {
       filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
     } catch (e) { /* 忽略 */ }
   }
-  // LLM 从题库/候选池动态挑选组卷（失败回退程序抽题）
-  loading.log("LLM 从题库动态挑选组卷");
-  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 8, "chapter");
-  if (llmPicked && llmPicked.length) filtered = llmPicked;
   // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
   filtered = injectReviewQuestions(filtered, mode);
   // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
