@@ -1093,8 +1093,6 @@ body::after {
 .imp-part-icon { font-size: 15px; }
 .imp-part-label { font-weight: 700; color: var(--text-0); }
 .imp-part-state { margin-left: auto; font-size: 11.5px; color: var(--text-2); font-family: var(--mono); }
-.imp-part[data-part="theory"] .imp-part-icon { }
-.imp-part[data-part="practical"] .imp-part-icon { }
 .imp-tips-box {
   margin-top: 14px;
   padding-top: 10px;
