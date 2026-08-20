@@ -2150,11 +2150,10 @@ function renderQuestion() {
     $("#exam-view").scrollTop = 0;
     document.getElementById("main")?.scrollTo?.(0, 0);
   }, `
-    <div class="exam-progress-bar"><div class="exam-progress-fill" style="width:${progress}%"></div></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <div class="exam-progress-stat" style="margin:0">第 ${quizIdx + 1} / ${total} 题 · 已答对 ${correctCount} 题${combo >= 2 ? ` · 🔥 连击 ×${combo}` : ""}</div>
-      <button class="exam-btn ghost" style="padding:5px 14px;font-size:12px" onclick="quitExam()">✕ 退出考核</button>
+    <div class="exam-progress-bar"><div class="exam-progress-fill" style="width:${progress}%"></div>
+      <button class="exam-quit" title="退出考核" onclick="quitExam()">✕</button>
     </div>
+    <div class="exam-progress-stat">第 ${quizIdx + 1} / ${total} 题 · 已答对 ${correctCount} 题${combo >= 2 ? ` · 🔥 连击 ×${combo}` : ""}</div>
     <div class="exam-question-head">
       <div class="exam-q-meta">${TYPE_LABEL[q.type] || q.type} · 难度 ${diffStars}</div>
       <span class="exam-q-type ${typeCls}">${TYPE_LABEL[q.type] || q.type}</span>
@@ -2166,11 +2165,11 @@ function renderQuestion() {
       <span class="eq-tag source">${esc(sourceLabel)}</span>
     </div>
     <div class="exam-question">${esc(q.question)}</div>
-    <div style="margin-top:6px;text-align:right">
-      <button class="exam-btn ghost" style="padding:4px 12px;font-size:11px" onclick="flagQuestion()">⚠️ 反馈：这题出得不好 / 答案有误</button>
-    </div>
     <div class="exam-hint">${hint}</div>
     ${questionBody(q)}
+    <div style="display:flex;justify-content:flex-start;margin-top:12px">
+      <button class="exam-btn ghost exam-feedback-btn" onclick="flagQuestion()">这题有问题？反馈</button>
+    </div>
     <div class="exam-nav-btns">
       ${quizIdx > 0 ? `<button class="exam-btn ghost" onclick="prevQuestion()">← 上一题</button>` : "<span></span>"}
       ${answers.some((a) => a.q === q)

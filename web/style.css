@@ -287,7 +287,18 @@ body::after {
 .chapter-pick .cp-title { font-size: 12.5px; color: var(--text-0); margin-top: 4px; line-height: 1.5; }
 
 /* ===== 答题流程 ===== */
-.exam-progress-bar { height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; margin-bottom: 24px; }
+.exam-progress-bar { position: relative; height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: visible; margin-bottom: 24px; }
+.exam-quit {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid rgba(255,107,107,0.35);
+  background: rgba(10,15,22,0.9);
+  color: #ff6b6b; font-size: 12px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease; z-index: 2;
+}
+.exam-quit:hover { background: rgba(255,107,107,0.18); border-color: #ff6b6b; transform: translateY(-50%) scale(1.12); }
+.exam-quit:active { transform: translateY(-50%) scale(0.95); }
 .exam-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 2px; transition: width 0.4s ease; }
 
 .exam-question-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
@@ -1051,6 +1062,16 @@ body::after {
   margin: -16px 0 14px;
   letter-spacing: 0.5px;
 }
+.exam-feedback-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  opacity: 0.55;
+  border-color: transparent;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+.exam-feedback-btn:hover { opacity: 1; color: var(--accent-2); }
 .exam-q-tags {
   display: flex;
   gap: 8px;
