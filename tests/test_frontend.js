@@ -308,6 +308,41 @@ test("全部完成后引导条显示完成态", () => {
   assert.ok(html.includes("gb-all-done"), "应显示全部完成态");
 });
 
+console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
+test("技术徽章覆盖全部 10 个能力维度", () => {
+  const tech = raw("BADGES.filter(b => b.id.startsWith('ab_'))");
+  assert.ok(tech.length >= 11, "应有 10 维徽章 + 全能/宗师，实际 " + tech.length);
+  const names = new Set(tech.map(b => b.name));
+  const dims = ["提示词大师", "RAG 检索专家", "工具调用高手", "向量检索专家", "Agent 内行", "微调专家", "框架能手", "部署优化大师", "算法内核专家", "表达之星"];
+  for (const d of dims) assert.ok(names.has(d), "缺少维度徽章 " + d);
+});
+test("维度徽章基于 abilityBest 解锁", () => {
+  raw("state.abilityBest = { 'RAG 与知识库': 92 };");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_rag').check(state)"), true);
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_prompt').check(state)"), false, "未达到的维度不解锁");
+});
+test("六维宗师要求 6 个维度", () => {
+  raw("state.abilityBest = { '提示词工程': 91, 'RAG 与知识库': 92, '工具调用': 90, '向量与 Embedding': 95, 'Agent 核心机制': 93, '开发框架': 90 };");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_master6').check(state)"), true);
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_full').check(state)"), true);
+});
+test("表达之星可经面试分解锁", () => {
+  raw("state.abilityBest = {}; state.bestInterview = 92;");
+  assert.strictEqual(raw("BADGES.find(b => b.id === 'ab_expr').check(state)"), true);
+});
+test("庆祝动画函数存在且引用稀有度元数据", () => {
+  assert.strictEqual(typeof raw("showBadgeCelebration"), "function");
+  assert.ok(raw("RARITY_META.legendary.color"), "应有传说稀有度颜色");
+});
+test("庆祝动画模板含核心元素与粒子爆发", () => {
+  const src = raw("showBadgeCelebration.toString()");
+  assert.ok(src.includes("badge-celebrate"), "应有全屏遮罩类");
+  assert.ok(src.includes("bc-icon"), "应有徽章图标元素");
+  assert.ok(src.includes("bc-reward"), "应有奖励提示（+XP/+AP）");
+  assert.ok(src.includes("burstParticles"), "应触发粒子爆发");
+  assert.ok(src.includes("RARITY_META"), "应使用稀有度颜色");
+});
+
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
 process.exit(failed > 0 ? 1 : 0);

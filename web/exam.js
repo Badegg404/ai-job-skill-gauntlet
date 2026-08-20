@@ -2668,6 +2668,13 @@ function showResult() {
   const newBadges = BADGES.filter((b) => !beforeIds.has(b.id) && nowUnlocked.includes(b.id));
   const revealBadges = newBadges.slice(0, 1);
   state.prevUnlocked = [...beforeIds, ...revealBadges.map((b) => b.id)];
+  // 徽章解锁奖励：等值 XP（技术向徽章激励）+ 全屏酷炫庆祝动画
+  if (revealBadges.length) {
+    const b = revealBadges[0];
+    const reward = b.ap || 10;
+    state.xp += reward;
+    setTimeout(() => showBadgeCelebration(b), 900);
+  }
   const newBadgeHtml = revealBadges.length ? `<div class="exam-newbadges">
       <div style="font-size:13.5px;color:var(--warn);font-weight:700;margin-bottom:8px">🏅 新成就解锁！</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">${revealBadges.map((b) => `
@@ -3678,6 +3685,33 @@ function showToast(msg) {
     t.classList.add("hide");
     setTimeout(() => { t.remove(); if (toastEl === t) toastEl = null; }, 250);
   }, 2000);
+}
+
+/* ---------------- 徽章解锁庆祝动画 ---------------- */
+/* 全屏酷炫弹窗：徽章图标弹性放大 + 稀有度光晕 + 粒子爆发 + 奖励提示 */
+function showBadgeCelebration(badge) {
+  const meta = RARITY_META[badge.rarity] || RARITY_META.common;
+  const mask = document.createElement("div");
+  mask.className = "badge-celebrate";
+  mask.innerHTML = `
+    <div class="bc-glow" style="--c:${meta.color}"></div>
+    <div class="bc-icon">${badge.icon}</div>
+    <div class="bc-name">${esc(badge.name)}</div>
+    <div class="bc-rarity" style="color:${meta.color}">${meta.label}徽章 · ${esc(badge.desc)}</div>
+    <div class="bc-reward">+XP ${badge.ap || 10} · +AP ${badge.ap || 10}</div>
+    <div class="bc-tip">点击任意处关闭</div>`;
+  document.body.appendChild(mask);
+  // 粒子爆发（徽章中心）
+  burstParticles(window.innerWidth / 2, window.innerHeight / 2 - 40, meta.color, 70);
+  // 1.2s 后再补一轮金色粒子（进阶感）
+  setTimeout(() => burstParticles(window.innerWidth / 2, window.innerHeight / 2 - 40, "#ffd75b", 40), 550);
+  const close = () => {
+    if (!mask.isConnected) return;
+    mask.classList.add("out");
+    setTimeout(() => mask.remove(), 420);
+  };
+  mask.addEventListener("click", close);
+  setTimeout(close, 3600);
 }
 
 /* ---------------- 初始化 ---------------- */

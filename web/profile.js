@@ -77,11 +77,19 @@ const BADGES = [
   { id: "streak7", icon: "🗓️", name: "一周全勤", desc: "连续 7 天学习", rarity: "rare", ap: 20, check: (s) => s.bestStreak >= 7 },
   { id: "streak14", icon: "📆", name: "半月坚守", desc: "连续 14 天学习", rarity: "epic", ap: 35, check: (s) => s.bestStreak >= 14 },
   { id: "streak30", icon: "🏵️", name: "月度全勤", desc: "连续 30 天学习", rarity: "legendary", ap: 60, check: (s) => s.bestStreak >= 30 },
-  // —— 能力维度精通 ——
-  { id: "ab_agent", icon: "🤖", name: "Agent 内行", desc: "Agent 核心机制 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "Agent 核心机制") },
+  // —— 能力维度精通（技术向徽章：10 个能力维度各一枚，≥ 90% 解锁）——
   { id: "ab_prompt", icon: "💬", name: "提示词大师", desc: "提示词工程 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "提示词工程") },
+  { id: "ab_rag", icon: "🔍", name: "RAG 检索专家", desc: "RAG 与知识库 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "RAG 与知识库") },
+  { id: "ab_tools", icon: "🧰", name: "工具调用高手", desc: "工具调用 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "工具调用") },
+  { id: "ab_vector", icon: "🧲", name: "向量检索专家", desc: "向量与 Embedding ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "向量与 Embedding") },
+  { id: "ab_agent", icon: "🤖", name: "Agent 内行", desc: "Agent 核心机制 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "Agent 核心机制") },
+  { id: "ab_finetune", icon: "🔬", name: "微调专家", desc: "模型微调 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "模型微调") },
   { id: "ab_arch", icon: "🏗️", name: "框架能手", desc: "开发框架 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "开发框架") },
+  { id: "ab_deploy", icon: "⚙️", name: "部署优化大师", desc: "部署与推理 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "部署与推理") },
+  { id: "ab_algo", icon: "🧮", name: "算法内核专家", desc: "算法与神经网络 ≥ 90%", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "算法与神经网络") },
+  { id: "ab_expr", icon: "🎙️", name: "表达之星", desc: "面试表达力 ≥ 90%（或面试考核 ≥ 90 分）", rarity: "epic", ap: 35, check: (s) => Object.prototype.hasOwnProperty.call(s.abilityBest || {}, "面试表达力") || (s.bestInterview || 0) >= 90 },
   { id: "ab_full", icon: "🧠", name: "全能大脑", desc: "3 个能力维度 ≥ 90%", rarity: "legendary", ap: 60, check: (s) => Object.keys(s.abilityBest || {}).length >= 3 },
+  { id: "ab_master6", icon: "🏆", name: "六维宗师", desc: "6 个能力维度 ≥ 90%", rarity: "legendary", ap: 80, check: (s) => Object.keys(s.abilityBest || {}).length >= 6 },
   // —— 资料导入 ——
   { id: "imp1", icon: "📥", name: "首份资料", desc: "导入第一份学习资料", rarity: "common", ap: 10, check: (s) => s.imports >= 1 },
   { id: "imp5", icon: "📚", name: "资料收集者", desc: "累计导入 5 份资料", rarity: "rare", ap: 20, check: (s) => s.imports >= 5 },
