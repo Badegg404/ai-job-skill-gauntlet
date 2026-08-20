@@ -907,6 +907,103 @@ async function reportDebug(tag, payload) {
 }
 
 
+/* ===== LLM 约束化输出（Agently 式）：统一 JSON 格式约束 + 校验失败反馈重出 ===== */
+// 所有 LLM 出题交互统一走 llmJSON：prompt 尾部附加标准格式约束；解析出题数不足时把校验错误反馈给 LLM 重新输出（最多 maxRetries 次）
+const JSON_FORMAT_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象：顶层必须有 questions 数组
+2. 不要 markdown 代码块（不要用三个反引号包裹 JSON），不要任何解释、前后缀、多余文字
+3. 每道题严格按上面给出的 JSON 模板逐字段填写，字段名一个都不能改
+4. 字符串用英文双引号，数组用方括号，数量必须达到要求，不要少出
+5. 实在无法生成时输出 {"questions": []}`;
+
+async function llmJSON(opts) {
+  // opts: { system, prompt, formatHint, minCount, maxRetries, part, maxTokens }
+  // 返回符合约束的题目数组（已通过 extractLLMQuestions 归一化+校验）
+  if (!LLM_KEY) return [];
+  const base = String(LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
+  const model = LLM_MODEL || "deepseek-chat";
+  const maxTokens = opts.maxTokens || (opts.part === "theory" ? 4500 : opts.part === "practical" ? 7000 : 10000);
+  const system = opts.system || SYSTEM.examiner;
+  const prompt = opts.prompt || "";
+  const formatHint = opts.formatHint || JSON_FORMAT_HINT;
+  const minCount = opts.minCount || 0;
+  const maxRetries = opts.maxRetries || 3;
+  const part = opts.part || "all";
+  let curPrompt = prompt + "\n\n" + formatHint;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    reportDebug("llm-start", { part, attempt, model, base, promptLen: curPrompt.length });
+    const doFetch = (withFormat) => fetch(base + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: curPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: maxTokens,
+        ...(withFormat ? { response_format: { type: "json_object" } } : {}),
+      }),
+    });
+    // 429/5xx/网络错误自动重试（最多 3 次，间隔递增）
+    let res = null;
+    for (let a = 1; a <= 3; a++) {
+      try {
+        res = await doFetch(true);
+        if (res.ok) break;
+        if (res.status === 429 || res.status >= 500) {
+          reportDebug("llm-retry", { part, attempt, status: res.status });
+          await new Promise((r) => setTimeout(r, 1200 * a));
+          continue;
+        }
+        break;
+      } catch (e) {
+        if (a === 3) { lastErr = e; break; }
+        reportDebug("llm-net-retry", { part, attempt, err: String(e) });
+        await new Promise((r) => setTimeout(r, 1200 * a));
+      }
+    }
+    if (!res || !res.ok) {
+      // 400：中转站可能不支持 response_format，去掉该字段重试一次
+      if (res && res.status === 400) {
+        try {
+          const res2 = await doFetch(false);
+          if (res2.ok) {
+            const data2 = await res2.json();
+            const qs2 = extractLLMQuestions(data2);
+            reportDebug("llm-ok", { part, attempt, count: qs2.length });
+            if (qs2.length >= minCount) return qs2;
+            lastErr = new Error("解析出 " + qs2.length + " 题（要求 " + minCount + "）");
+            curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】上一次输出未通过程序校验：" + lastErr.message + "。常见问题：markdown 代码块包裹 JSON、字段名不符、少出题。请严格按【输出格式要求】重新输出完整 JSON（不要代码块，不要多余文字），数量必须达标。";
+            continue;
+          }
+        } catch (e2) {}
+      }
+      const errTxt = res ? (await res.text().catch(() => "")) : "";
+      lastErr = new Error("API 返回 " + (res ? res.status : "无响应") + (errTxt ? "：" + errTxt.slice(0, 120) : ""));
+      reportDebug("llm-fail", { part, attempt, msg: lastErr.message });
+      throw lastErr;
+    }
+    const data = await res.json();
+    const rawContent = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    const qs = extractLLMQuestions(data);
+    reportDebug("llm-ok", {
+      part, attempt, count: qs.length, rawLen: rawContent.length,
+      // 解析出 0 题时把 LLM 原始内容前 1500 字落盘，精确定位格式/结构问题
+      ...(qs.length === 0 ? { contentHead: rawContent.slice(0, 1500) } : {}),
+    });
+    if (qs.length >= minCount) return qs;
+    lastErr = new Error("解析出 " + qs.length + " 题（要求 " + minCount + "）");
+    // Agently 式修正：把校验错误反馈给 LLM，要求重新输出
+    curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】你上一次的输出未能通过程序校验：" + lastErr.message + "。请严格按【输出格式要求】重新输出完整 JSON（不要 markdown 代码块，不要多余文字），数量必须达标。";
+  }
+  reportDebug("llm-fail", { part, msg: String((lastErr && lastErr.message) || lastErr) });
+  throw lastErr;
+}
+
+
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
 async function browserLLMGenerate(course, part) {
   // part: "theory" 只生成理论 16 道 | "practical" 只生成实战 10 道 | 缺省全量（26 道，兼容旧调用）
@@ -937,71 +1034,13 @@ async function browserLLMGenerate(course, part) {
     ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt())
     : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
-  reportDebug("llm-start", { part, model, base, maxTokens, promptLen: prompt.length });
-  const buildBody = (withFormat) => JSON.stringify({
-    model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.8,
-    max_tokens: maxTokens,
-    ...(withFormat ? { response_format: { type: "json_object" } } : {}),
-  });
-  const doFetch = (withFormat) => fetch(base + "/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + LLM_KEY,
-    },
-    body: buildBody(withFormat),
-  });
-  // 429/5xx/网络错误自动重试（最多 3 次，间隔递增），避免偶发限流导致整轮失败
-  let res = null;
-  let lastErr = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      res = await doFetch(true);
-      if (res.ok) break;
-      if (res.status === 429 || res.status >= 500) {
-        lastErr = new Error(`API 返回 ${res.status}（第 ${attempt} 次）`);
-        reportDebug("llm-retry", { part, attempt, status: res.status });
-        await new Promise((r) => setTimeout(r, 1200 * attempt));
-        continue;
-      }
-      break;
-    } catch (e) {
-      lastErr = e;
-      reportDebug("llm-net-retry", { part, attempt, err: String(e) });
-      if (attempt === 3) break;
-      await new Promise((r) => setTimeout(r, 1200 * attempt));
-    }
-  }
-  if (!res || !res.ok) {
-    // 400：中转站可能不支持 response_format，重试一次去掉该字段
-    if (res && res.status === 400) {
-      try {
-        const res2 = await doFetch(false);
-        if (res2.ok) return extractLLMQuestions(await res2.json());
-        lastErr = new Error(`API 返回 ${res2.status}${(await res2.text().catch(() => "")).slice(0, 120)}`);
-      } catch (e2) { lastErr = e2; }
-    } else {
-      const errTxt = res ? (await res.text().catch(() => "")) : "";
-      lastErr = new Error(`API 返回 ${res ? res.status : "无响应"}${errTxt ? "：" + errTxt.slice(0, 120) : ""}`);
-    }
-    reportDebug("llm-fail", { part, msg: String((lastErr && lastErr.message) || lastErr) });
-    throw lastErr;
-  }
-
-  const data = await res.json();
-  const qs = extractLLMQuestions(data);
-  const rawContent = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
-  reportDebug("llm-ok", {
+  const minCount = part === "theory" ? 16 : part === "practical" ? 10 : 26;
+  const qs = await llmJSON({
+    system: SYSTEM.examiner,
+    prompt,
+    formatHint: JSON_FORMAT_HINT,
+    minCount,
     part,
-    count: qs.length,
-    rawLen: rawContent.length,
-    // 解析出 0 题时把 LLM 原始内容前 1500 字落盘，精确定位格式/结构问题
-    ...(qs.length === 0 ? { contentHead: rawContent.slice(0, 1500) } : {}),
   });
   return qs;
 }
@@ -1748,73 +1787,194 @@ function showInterviewTyping(show) {
 }
 
 /* 动态生成下一道面试题：结合岗位 + 资料 + 题库 + 已问过（去重）+ 生产环境实际，题型多样 */
-async function generateNextQuestion() {
-  const st = interviewState;
-  interviewBusyCount++;   // 竞态守卫：锁定发送
-  showInterviewTyping(true);
-  const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
-  const askedTxt = st.asked.length ? st.asked.map((q) => `- ${q}`).join("\n") : "（暂无）";
-  const answeredTxt = st.history.map((h, i) => `${i + 1}. Q: ${h.question}\n   A: ${h.answer.slice(0, 200)}`).join("\n") || "（暂无）";
-
-  const qPrompt = buildInterviewQuestionPrompt(st, askedTxt, answeredTxt);
-
-  // 带超时 + response_format 兜底的请求
-  const doRequest = async (withFormat) => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
-    try {
-      const body = {
-        model,
-        messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: qPrompt }],
-        temperature: 0.8, max_tokens: 800,
+// ===== 面试考核 StateGraph（LangGraph 式：节点 + 条件路由 + 共享状态，human-in-the-loop 用 WAIT） =====
+const InterviewGraph = {
+  nodes: {
+    // 出题节点：LLM 生成或兜底题池 → 等用户作答
+    ask: async (st) => {
+      interviewBusyCount++;
+      showInterviewTyping(true);
+      const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
+      const model = LLM_MODEL || "deepseek-chat";
+      const askedTxt = st.asked.length ? st.asked.map((q) => `- ${q}`).join("\n") : "（暂无）";
+      const answeredTxt = st.history.map((h, i) => `${i + 1}. Q: ${h.question}\n   A: ${h.answer.slice(0, 200)}`).join("\n") || "（暂无）";
+      const qPrompt = buildInterviewQuestionPrompt(st, askedTxt, answeredTxt);
+      const doRequest = async (withFormat) => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 60000);
+        try {
+          const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: qPrompt }], temperature: 0.8, max_tokens: 800 };
+          if (withFormat) body.response_format = { type: "json_object" };
+          return await fetch(base + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY }, body: JSON.stringify(body), signal: ctrl.signal });
+        } finally { clearTimeout(timer); }
       };
-      if (withFormat) body.response_format = { type: "json_object" };
-      return await fetch(base + "/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+      try {
+        let res = await doRequest(true);
+        if (res.status === 400) res = await doRequest(false);
+        showInterviewTyping(false);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const content = (await res.json()).choices[0].message.content;
+        let parsed = null;
+        try { parsed = JSON.parse(content); } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch (e2) {} }
+        if (!parsed || !parsed.question) throw new Error("解析失败");
+        st.current = parsed;
+        st.asked.push(parsed.question);
+        const typeLabel = { essay: "💬 问答题", scenario: "🛠️ 场景题", code: "💻 代码题", choice: "🎯 选择题" }[parsed.type] || "💬 问答";
+        appendInterviewMessage("interviewer", parsed.question, `第 ${st.round + 1} 题 · ${typeLabel} · ${parsed.dimension || ""}`);
+        if (parsed.type === "choice" && parsed.options && parsed.options.length) appendInterviewOptions(parsed.options);
+      } catch (e) {
+        showInterviewTyping(false);
+        const fp = (st.fallbackPool && st.fallbackPool.length) ? st.fallbackPool : st.job.sampleQuestions;
+        const fstart = st.fallbackStart || 0;
+        const fallback = fp[(fstart + st.round) % fp.length];
+        if (fallback) {
+          st.current = { type: "essay", question: fallback, dimension: st.dims[st.round % st.dims.length] };
+          st.asked.push(fallback);
+          appendInterviewMessage("interviewer", fallback, `第 ${st.round + 1} 题 · 💬 问答题 · ${st.current.dimension}`);
+        } else {
+          await finishInterview();
+        }
+      } finally {
+        interviewBusyCount = Math.max(0, interviewBusyCount - 1);
+      }
+      return { next: "WAIT" };
+    },
+    // 记录回答节点：写入 history + 弱回答检测
+    record: async (st, ans) => {
+      const q = st.current || {};
+      const t = String(ans).trim();
+      const weakAnswer = (t.length <= 10) && /(不知道|不会|不清楚|不懂|没学过|不了解|不确定|也不会|也不知道|没思路|想不出|我想想|让我想想|再想想|还没想好|这题不会|不会做)/.test(t);
+      st.history.push({ question: q.question || "", type: q.type || "essay", answer: ans, dimension: q.dimension || "", weak: weakAnswer });
+      return { next: "route" };
+    },
+    // 路由节点：集中条件判断（连续弱回答 → 提前终止）
+    route: (st) => {
+      const weakCount = st.history.filter((h) => h.weak).length;
+      if (weakCount >= 4) return { next: "fail" };
+      return { next: "judge" };
+    },
+    // 评估节点：LLM 判断回答 → followup / advance / judged
+    judge: async (st) => {
+      const q = st.current || {};
+      const curQuestion = q.question || "";
+      const last = st.history[st.history.length - 1] || {};
+      const ans = last.answer || "";
+      const sendBtn = $("#interview-send");
+      if (sendBtn) sendBtn.disabled = true;
+      showInterviewTyping(true);
+      try {
+        const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
+        const model = LLM_MODEL || "deepseek-chat";
+        const followPrompt = buildInterviewFollowPrompt(st, q, curQuestion, ans, INTERVIEWER_TACTICS);
+        const doFollow = async (withFormat) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 60000);
+          try {
+            const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: followPrompt }], temperature: 0.6, max_tokens: 700 };
+            if (withFormat) body.response_format = { type: "json_object" };
+            return await fetch(base + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY }, body: JSON.stringify(body), signal: ctrl.signal });
+          } finally { clearTimeout(timer); }
+        };
+        let res = await doFollow(true);
+        if (res.status === 400) res = await doFollow(false);
+        showInterviewTyping(false);
+        st._followup = ""; st._advanceReply = ""; st._judged = "ok";
+        if (res.ok) {
+          const content = (await res.json()).choices[0].message.content;
+          try {
+            const parsed = JSON.parse(content);
+            st._followup = parsed.followup || "";
+            st._advanceReply = parsed.advance || "";
+            st._judged = parsed.judged === "weak" ? "weak" : "ok";
+          } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) { try { const p2 = JSON.parse(m[0]); st._followup = p2.followup || ""; st._advanceReply = p2.advance || ""; st._judged = p2.judged === "weak" ? "weak" : "ok"; } catch (e2) {} } }
+        }
+      } catch (e) {
+        showInterviewTyping(false);
+        st._followup = ""; st._advanceReply = ""; st._judged = "ok";
+      }
+      return { next: "decide" };
+    },
+    // 决策节点：是否追问（前端强制追问：不足 3 次或弱回答）
+    decide: (st) => {
+      const shouldFollow = (st.currentFollows || 0) < 3 || st._judged === "weak";
+      if (shouldFollow && (st.currentFollows || 0) < 4) return { next: "follow" };
+      return { next: "advance" };
+    },
+    // 追问节点：显示追问（LLM 追问或兜底）
+    follow: (st) => {
+      const q = st.current || {};
+      const msg = st._followup || buildFallbackFollowup(st, q);
+      st.currentFollows = (st.currentFollows || 0) + 1;
+      st.asked.push(msg);
+      appendInterviewMessage("interviewer", msg, "追问");
+      return { next: "WAIT" };
+    },
+    // 推进节点：轮次+1 → 下一题或结束评分
+    advance: async (st) => {
+      st.currentFollows = 0;
+      st.round++;
+      if (st._advanceReply) { appendInterviewMessage("interviewer", st._advanceReply, "过渡"); st._advanceReply = ""; }
+      if (st.round >= st.maxRounds) {
+        appendInterviewMessage("interviewer", "好的，今天的面试就到这里，感谢你的时间。我来综合评估一下。", "结束");
+        await finishInterview();
+        return { next: "END" };
+      }
+      return { next: "ask" };
+    },
+    // 提前终止节点：连续弱回答，直接判定不合格
+    fail: (st) => {
+      const weakCount = st.history.filter((h) => h.weak).length;
+      showInterviewTyping(false);
+      const sb = $("#interview-send");
+      if (sb) sb.disabled = true;
+      appendInterviewMessage("interviewer", "（面试官合上简历，叹了口气）", "结束");
+      appendInterviewMessage("interviewer", `连续 ${weakCount} 次基础问题都没答上来，这次面试到此为止。你的基础还没打牢，建议先回去把「${st.job.name}」的核心概念补扎实，再回来面试。`, "结束");
+      const failedResult = {
+        totalScore: 20,
+        dimensions: [{ name: "面试表达力", score: 15, comment: `连续 ${weakCount} 次直接答「不知道/不会」，连最基础的概念都组织不出答案，缺乏基本功。` }],
+        overall: `这次面试暴露出很严重的基础问题：连续 ${weakCount} 次连最基础的概念都答不上来，「${st.job.name}」的核心知识几乎为零。建议先系统补一遍岗位要求里的核心概念，再回来面试。`,
+      };
+      setTimeout(() => renderInterviewResult(failedResult), 1600);
+      return { next: "END" };
+    },
+  },
+};
 
-  try {
-    let res = await doRequest(true);
-    if (res.status === 400) res = await doRequest(false);   // 中转站可能不支持 response_format，重试一次
-    showInterviewTyping(false);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const content = (await res.json()).choices[0].message.content;
-    let parsed = null;
-    try { parsed = JSON.parse(content); } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-    if (!parsed || !parsed.question) throw new Error("解析失败");
-    st.current = parsed;
-    st.asked.push(parsed.question);
-    const typeLabel = { essay: "💬 问答题", scenario: "🛠️ 场景题", code: "💻 代码题", choice: "🎯 选择题" }[parsed.type] || "💬 问答";
-    appendInterviewMessage("interviewer", parsed.question, `第 ${st.round + 1} 题 · ${typeLabel} · ${parsed.dimension || ""}`);
-    // 选择题渲染选项按钮
-    if (parsed.type === "choice" && parsed.options && parsed.options.length) {
-      appendInterviewOptions(parsed.options);
-    }
-  } catch (e) {
-    showInterviewTyping(false);
-    // 兜底：从「已打乱的岗位典型题池」环形取（随机起点），顺序每场面试不同
-    const fp = (st.fallbackPool && st.fallbackPool.length) ? st.fallbackPool : st.job.sampleQuestions;
-    const fstart = st.fallbackStart || 0;
-    const fallback = fp[(fstart + st.round) % fp.length];
-    if (fallback) {
-      st.current = { type: "essay", question: fallback, dimension: st.dims[st.round % st.dims.length] };
-      st.asked.push(fallback);
-      appendInterviewMessage("interviewer", fallback, `第 ${st.round + 1} 题 · 💬 问答题 · ${st.current.dimension}`);
-    } else {
-      finishInterview();
-    }
-  } finally {
-    interviewBusyCount = Math.max(0, interviewBusyCount - 1);   // 竞态守卫：解锁
+/* 图执行器：从节点开始链式执行，直到 WAIT（等用户作答）或 END（结束） */
+async function runInterviewGraph(st, node, payload) {
+  let cur = node;
+  let p = payload;
+  while (cur && cur !== "WAIT" && cur !== "END") {
+    const r = await InterviewGraph.nodes[cur](st, p);
+    p = undefined;
+    cur = r ? r.next : "END";
   }
 }
+
+// 出题入口（HTML 开始按钮 / 下一题）
+function generateNextQuestion() {
+  runInterviewGraph(interviewState, "ask");
+}
+
+// 作答入口（sendInterviewMessage / chooseInterviewOption 调用）：记录 → 路由 → 评估 → 追问/推进
+async function proceedInterviewAnswer(ans) {
+  const st = interviewState;
+  if (interviewBusyCount > 0) { showToast("⏳ 面试官正在回复，请稍候…"); return; }
+  interviewBusyCount++;
+  try {
+    await runInterviewGraph(st, "record", ans);
+  } finally {
+    interviewBusyCount = Math.max(0, interviewBusyCount - 1);
+    const sb = $("#interview-send");
+    if (sb) sb.disabled = false;
+  }
+}
+
+// 推进入口（错误兜底）
+function advanceInterview() {
+  runInterviewGraph(interviewState, "advance");
+}
+
 
 /* 选择题：在聊天气泡下方渲染选项按钮 */
 function appendInterviewOptions(options) {
@@ -1862,109 +2022,9 @@ function buildFallbackFollowup(st, q) {
 }
 
 /* 处理候选人的一条回答：记录 → 面试官回应（追问/肯定并推进）→ 动态生成下一题或结束 */
-async function proceedInterviewAnswer(ans) {
-  const st = interviewState;
-  interviewBusyCount++;   // 竞态守卫：锁定发送
-  const q = st.current || {};
-  const curQuestion = q.question || "";
-  const curDim = q.dimension || "";
-  // 标记低质量回答（短回答 + 含弱词/拖延词，如「不知道/不会/不清楚/我想想/也不会/这个。。不清楚」），供评分时严格扣分
-  const t = String(ans).trim();
-  const weakAnswer = (t.length <= 10) && /(不知道|不会|不清楚|不懂|没学过|不了解|不确定|也不会|也不知道|没思路|想不出|我想想|让我想想|再想想|还没想好|这题不会|不会做)/.test(t);
-  st.history.push({ question: curQuestion, type: q.type || "essay", answer: ans, dimension: curDim, weak: weakAnswer });
 
-  // 提前终止：累计弱回答达到 4 次，判定基础不合格，不再机械地耗下去，让候选人回去补基础
-  const weakCount = st.history.filter((h) => h.weak).length;
-  if (weakCount >= 4) {
-    showInterviewTyping(false);
-    const sb = $("#interview-send");
-    if (sb) sb.disabled = true;
-    appendInterviewMessage("interviewer", "（面试官合上简历，叹了口气）", "结束");
-    appendInterviewMessage("interviewer", `连续 ${weakCount} 次基础问题都没答上来，这次面试到此为止。你的基础还没打牢，建议先回去把「${st.job.name}」的核心概念补扎实，再回来面试。`, "结束");
-    // 直接判定不合格，给一个确定的「不合格」结果，不走 LLM 评分（避免评分失败导致空结果、点评丢失）
-    const failedResult = {
-      totalScore: 20,
-      dimensions: [{ name: "面试表达力", score: 15, comment: `连续 ${weakCount} 次直接答「不知道/不会」，连最基础的概念都组织不出答案，缺乏基本功。` }],
-      overall: `这次面试暴露出很严重的基础问题：连续 ${weakCount} 次连最基础的概念都答不上来，「${st.job.name}」的核心知识几乎为零。建议先系统补一遍岗位要求里的核心概念，再回来面试。`,
-    };
-    setTimeout(() => renderInterviewResult(failedResult), 1600);
-    interviewBusyCount = Math.max(0, interviewBusyCount - 1);   // BUG-1：提前终止也必须解锁，否则二次面试被锁卡死
-    return;
-  }
 
-  const sendBtn = $("#interview-send");
-  if (sendBtn) sendBtn.disabled = true;
-  showInterviewTyping(true);
 
-  try {
-    const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-    const model = LLM_MODEL || "deepseek-chat";
-    const followPrompt = buildInterviewFollowPrompt(st, q, curQuestion, ans, INTERVIEWER_TACTICS);
-    const doFollow = async (withFormat) => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 60000);
-      try {
-        const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: followPrompt }], temperature: 0.6, max_tokens: 700 };
-        if (withFormat) body.response_format = { type: "json_object" };
-        return await fetch(base + "/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-          body: JSON.stringify(body),
-          signal: ctrl.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-    let res = await doFollow(true);
-    if (res.status === 400) res = await doFollow(false);   // 中转站可能不支持 response_format，重试一次
-    showInterviewTyping(false);
-    let followup = "", advanceReply = "", judged = "ok";
-    if (res.ok) {
-      const content = (await res.json()).choices[0].message.content;
-      try {
-        const parsed = JSON.parse(content);
-        followup = parsed.followup || "";
-        advanceReply = parsed.advance || "";
-        judged = parsed.judged === "weak" ? "weak" : "ok";
-      } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) { try { const p2 = JSON.parse(m[0]); followup = p2.followup || ""; advanceReply = p2.advance || ""; judged = p2.judged === "weak" ? "weak" : "ok"; } catch (e2) {} } }
-    }
-    // 前端强制追问：本题追问不足 3 次、或回答为弱回答（不知道/不清楚/避重就轻）时，一律追问，不依赖 LLM 自觉
-    const shouldFollow = (st.currentFollows || 0) < 3 || judged === "weak";
-    if (shouldFollow && (st.currentFollows || 0) < 4) {
-      // 兜底：LLM 未返回追问内容时，用岗位追问方向生成追问，确保强制追问绝不失效
-      const msg = followup || buildFallbackFollowup(st, q);
-      st.currentFollows = (st.currentFollows || 0) + 1;
-      st.asked.push(msg);
-      appendInterviewMessage("interviewer", msg, "追问");
-      if (sendBtn) sendBtn.disabled = false;
-      return;
-    }
-    // 推进：轮数+1，动态生成下一题或结束；重置当前题追问计数
-    st.currentFollows = 0;
-    st.round++;
-    if (advanceReply) appendInterviewMessage("interviewer", advanceReply, "过渡");
-    if (st.round >= st.maxRounds) {
-      appendInterviewMessage("interviewer", "好的，今天的面试就到这里，感谢你的时间。我来综合评估一下。", "结束");
-      finishInterview();
-    } else {
-      generateNextQuestion();
-    }
-  } catch (e) {
-    showInterviewTyping(false);
-    advanceInterview();
-  } finally {
-    interviewBusyCount = Math.max(0, interviewBusyCount - 1);   // 竞态守卫：解锁
-    if (sendBtn) sendBtn.disabled = false;
-  }
-}
-
-function advanceInterview() {
-  const st = interviewState;
-  st.round++;
-  if (st.round >= st.maxRounds) { finishInterview(); return; }
-  generateNextQuestion();
-}
 
 async function finishInterview() {
   const st = interviewState;
