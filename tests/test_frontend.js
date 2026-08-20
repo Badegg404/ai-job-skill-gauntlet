@@ -226,6 +226,16 @@ test("buildExamPrompt 理论模式含 JSON schema", () => {
   assert.ok(p.includes("RAG"), "应含核心知识点");
   assert.ok(p.includes('"questions"'), "应含 JSON schema");
 });
+test("导入拆分两次：理论/实战独立 prompt", () => {
+  const tp = raw("buildImportTheoryPrompt('课程', '概念', '章节', '难点', '')");
+  assert.ok(tp.includes("16 道理论题"), "理论 prompt 16 道");
+  assert.ok(tp.includes("8 道概念辨析"), "理论明细 8 选择");
+  assert.ok(tp.includes("4 道判断题") && tp.includes("4 道填空题"), "理论明细 4 判断 + 4 填空");
+  assert.ok(!tp.includes("code_choice"), "理论 prompt 不应含实战要求");
+  const pp = raw("buildImportPracticalPrompt('课程', '概念', '章节', '难点', '【demo-1.py】\\nprint(1)', '')");
+  assert.ok(pp.includes("10 道代码实战客观题"), "实战 prompt 10 道");
+  assert.ok(pp.includes("code_choice"), "实战 prompt 引用真实代码");
+});
 test("buildImportPrompt 含代码实战客观题要求", () => {
   const p = raw("buildImportPrompt('课程', '概念', '章节', '难点', '【demo-1.py】\\nprint(1)')");
   assert.ok(p.includes("code_choice"), "应要求代码客观题");

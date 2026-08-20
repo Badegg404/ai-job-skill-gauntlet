@@ -38,6 +38,114 @@ const TEACHING_METHODS = `【出题教学法（务必融入，让题目考察真
  * 出题 prompt
  * ============================================================ */
 
+/* 导入出题（理论部分）：16 道（choice 8 + true_false 4 + fill_blank 4）——与实战拆分两次请求，避免一次 26 道超长截断；重复由前端 seenTxt 去重兜底 */
+function buildImportTheoryPrompt(courseTitle, concepts, chapters, difficulties, badTxt) {
+  return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
+
+请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
+
+【课程】${courseTitle}
+【核心概念】
+${concepts}
+【章节要点】
+${chapters}
+【难点】
+${difficulties}
+${badTxt ? `
+【被反馈的题目（用户反馈过有问题，禁止生成相同或高度雷同的题）】
+${badTxt}` : ""}
+
+${TEACHING_METHODS}
+
+请生成 16 道理论题（8 道概念辨析选择 + 4 道判断 + 4 道填空）——作为理论考核题库，覆盖不同知识点、不要雷同：
+
+一、理论维度（dimension 填 "theory"）—— 考察概念/原理的客观掌握，客观题为主（选择题、判断题尽量多出）：
+  8 道概念辨析选择题（4 选项，correctIndex 为 0-3，题干基于核心概念，覆盖不同知识点、不要雷同）
+  4 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
+  4 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
+
+输出 JSON 格式（严格，不要多余文字）：
+{
+  "questions": [
+    {
+      "type": "choice|true_false|fill_blank",
+      "question": "题干",
+      "options": ["A...", "B...", "C...", "D..."],
+      "correctIndex": 0,
+      "correctAnswer": "答案",
+      "fillAnswers": ["可接受答案1"],
+      "answer": "标准答案",
+      "explanation": "讲解：为什么对/错",
+      "ability": "${ABILITY_WHITELIST}",
+      "difficulty": 3,
+      "dimension": "theory",
+      "chapterRef": null
+    }
+  ]
+}`;
+}
+
+/* 导入出题（实战部分）：10 道 code_choice（引用真实代码）——与理论拆分两次请求 */
+function buildImportPracticalPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt) {
+  return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
+
+请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
+
+【课程】${courseTitle}
+【核心概念】
+${concepts}
+【章节要点】
+${chapters}
+【难点】
+${difficulties}
+${codeFiles ? `【代码文件】
+${codeFiles}` : ""}
+${badTxt ? `
+【被反馈的题目（用户反馈过有问题，禁止生成相同或高度雷同的题）】
+${badTxt}` : ""}
+
+${TEACHING_METHODS}
+
+请生成 10 道代码实战客观题——作为实战考核题库，类型多样化、不要雷同：
+
+二、实战维度（dimension 填 "practical"）—— 基于课程【真实代码】的代码实战客观题（type 用 "practical"，practical.compareMode 填 "code_choice"）：
+  10 道，必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（10 道不要全同一种，5 种类型尽量都覆盖，同一段代码也可以从不同角度出题但要保证不雷同），在以下 5 种中选：
+  - spotlight 代码片段作用题：practical.code 放真实代码片段，highlightLines 标注其中一段的行号，问「标注段的作用/功能是什么」（单选，multi=false）
+  - functions 代码功能多选：practical.code 放真实代码，问「这段代码实现的【关键功能】有哪几个」（多选，multi=true）
+  - trace 输出预测：practical.code 放真实代码 + 题干给输入，问「运行结果/输出是什么」（单选）
+  - bugfix Bug 修复：practical.code 放有缺陷的真实代码，highlightLines 标注问题行，问「正确的修复是哪个」（单选）
+  - progression 递进 / compare 对比：当代码文件有多个（如 demo-1.py、demo-2.py 名称有序），用 practical.codeBlocks（[{"file":"demo-1.py","code":"..."},{"file":"demo-2.py","code":"..."}]）出跨文件题——问「相对上一版新增的关键能力 / 两种实现的本质区别与优劣」（单选或 multi=true 多选）
+  题干要贴合真实业务场景，不要空泛；正确选项必须对应代码的真实行为。
+
+输出 JSON 格式（严格，不要多余文字）：
+{
+  "questions": [
+    {
+      "type": "practical",
+      "question": "题干（描述代码上下文与问题）",
+      "practical": {
+        "subtype": "spotlight|functions|trace|bugfix|progression|compare",
+        "compareMode": "code_choice",
+        "files": ["demo-2.py"],
+        "code": "展示的代码片段（单文件题）",
+        "codeBlocks": [{"file": "demo-1.py", "code": "..."}, {"file": "demo-2.py", "code": "..."}],
+        "highlightLines": [10, 11, 12],
+        "multi": false,
+        "options": ["A...", "B...", "C...", "D..."],
+        "correctIndex": [1],
+        "referenceAnswer": "解析"
+      },
+      "answer": "解析",
+      "explanation": "讲解：为什么选这个",
+      "ability": "${ABILITY_WHITELIST}",
+      "difficulty": 4,
+      "dimension": "practical",
+      "chapterRef": null
+    }
+  ]
+}`;
+}
+
 /* 导入资料时的出题：生成 26 道考核题（理论 16 + 实战 10，理论客观题 + 代码实战客观题）；前端单轮调用后去重入库。
  * 说明：这里【不生成面试题】——面试题需要岗位针对性，由面试考核时按岗位动态生成（buildInterviewQuestionPrompt）。
  * 岗位通用面试题（参考弹药）由 generateJobQuestions 在导入后单独提炼 3 道，存进 jobExtraQuestions。 */

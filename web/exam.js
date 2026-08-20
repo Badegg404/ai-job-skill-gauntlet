@@ -896,7 +896,8 @@ async function handleImportFolder(files) {
 }
 
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
-async function browserLLMGenerate(course, payload) {
+async function browserLLMGenerate(course, payload, part) {
+  // part: "theory" 只生成理论 16 道 | "practical" 只生成实战 10 道 | 缺省全量（26 道，兼容旧调用）
   if (!LLM_KEY) return [];
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = LLM_MODEL || "deepseek-chat";
@@ -916,7 +917,11 @@ async function browserLLMGenerate(course, payload) {
     .map((m, i) => `[文件${i + 1}] ${m.file || m.path}（${m.lines || "?"} 行）\n${(m.preview || "").slice(0, 400)}`).join("\n\n");
 
   const system = SYSTEM.examiner;
-  const prompt = buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
+  const prompt = part === "theory"
+    ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt())
+    : part === "practical"
+    ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt())
+    : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
   const res = await fetch(base + "/chat/completions", {
     method: "POST",
@@ -931,7 +936,7 @@ async function browserLLMGenerate(course, payload) {
         { role: "user", content: prompt },
       ],
       temperature: 0.8,
-      max_tokens: 10000,
+      max_tokens: 6000,
       response_format: { type: "json_object" },
     }),
   });
@@ -952,7 +957,7 @@ async function browserLLMGenerate(course, payload) {
             { role: "user", content: prompt },
           ],
           temperature: 0.8,
-          max_tokens: 10000,
+          max_tokens: 6000,
         }),
       });
       if (res2.ok) return extractLLMQuestions(await res2.json());
@@ -1148,22 +1153,29 @@ async function handleImportFileList(mdFiles) {
         // 注：「题库 = 考核 × 2 考两次不重复」仅对章节考核成立（8×2=16）；综合考核单目录 16 道会被抽满，需导入 ≥2 个目录聚合才够 2 次量
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
-        const stTitle = $("#import-status .imp-stage-text");
-        if (stTitle) stTitle.textContent = "LLM 生成题目";
-        const llmQ = await browserLLMGenerate(data.course, payload);
-        if (llmQ && llmQ.length) {
-          const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
-          for (const q of llmQ) {
-            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
-            q.id = nid++;
-            q.source = "llm";
-            if (!q.dimension) q.dimension = inferDimension(q);
-            q.interview = !!q.interview;
-            if (q.type === "essay" && !q.followUps) q.followUps = [];
-            normalizeLLMQuestion(q);
-            data.course.quiz.push(q);
-            seenTxt.add((q.question || "") + "|" + q.type);
-            llmMade++;
+        // 拆两次请求：理论 16 道 + 实战 10 道（避免一次 26 道超长截断；重复由 seenTxt 去重兜底）
+        const genParts = [
+          { key: "theory", label: "LLM 生成理论题（16 道）" },
+          { key: "practical", label: "LLM 生成实战题（10 道）" },
+        ];
+        for (const gp of genParts) {
+          const stTitle = $("#import-status .imp-stage-text");
+          if (stTitle) stTitle.textContent = gp.label;
+          const llmQ = await browserLLMGenerate(data.course, payload, gp.key);
+          if (llmQ && llmQ.length) {
+            const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
+            for (const q of llmQ) {
+              if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
+              q.id = nid++;
+              q.source = "llm";
+              if (!q.dimension) q.dimension = inferDimension(q);
+              q.interview = !!q.interview;
+              if (q.type === "essay" && !q.followUps) q.followUps = [];
+              normalizeLLMQuestion(q);
+              data.course.quiz.push(q);
+              seenTxt.add((q.question || "") + "|" + q.type);
+              llmMade++;
+            }
           }
         }
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
