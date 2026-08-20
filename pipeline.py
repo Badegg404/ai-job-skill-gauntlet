@@ -117,18 +117,29 @@ def build_dir_from_files(uid, files, api_key=None):
             main_course.setdefault("quiz", []).append(q)
 
     # 5. 辅助文件生成题目（打 fromFile）
+    # 参考面试题最多 5 道：面试题是综合参考（结合课程主题与真实项目），不逐代码文件堆量；
+    # 超出的面试题丢弃（保留实战题），前几个有代表性的代码文件各出 1 道
     aux_summary = []
     qid = 3000 + len(main_course.get("quiz", []))
+    MAX_INTERVIEW = 5
+    interview_made = 0
     for filename, content, kind in aux_items:
         aux_qs, material = process_aux_file(filename, content, qid)
         qid += len(aux_qs)
+        kept = []
         for q in aux_qs:
+            if q.get("interview"):
+                if interview_made >= MAX_INTERVIEW:
+                    continue      # 面试题已够 5 道，丢弃本次（实战题仍保留）
+                interview_made += 1
+            kept.append(q)
+        for q in kept:
             q["fromFile"] = filename
             main_course.setdefault("quiz", []).append(q)
         main_course.setdefault("materials", []).append(material)
         aux_summary.append({
             "filename": filename, "kind": material["type"],
-            "lines": material["lines"], "questions": len(aux_qs),
+            "lines": material["lines"], "questions": len(kept),
         })
 
     # 6. 整体去重 + 补全字段
@@ -137,6 +148,8 @@ def build_dir_from_files(uid, files, api_key=None):
     for i, q in enumerate(main_course["quiz"]):
         q["id"] = 2000 + i + 1
     main_course = enrich_quiz(main_course)
+    # 6.5 目录级综合参考面试题：结合整个目录资料（标题/概念/章节/代码文件）提炼，最多 5 道
+    main_course["quiz"] += build_comprehensive_interviews(main_course)
     main_course = assign_chapter_refs(main_course)
 
     # 7. 文件清单（每个文件贡献几题）
@@ -342,23 +355,7 @@ def process_aux_file(filename, content, qid_start=3000):
             "chapterRef": None, "difficulty": 3, "interview": False,
             "ability": "AI 应用开发", "source": "file",
         })
-        # 面试弹药题：按文件特征换问法，减少与实战题雷同
-        if has_print or has_return:
-            essay_q = f"【面试】{name} 的输出/返回值设计在真实项目中如何被消费（作为下游输入/监控指标/API 响应）？"
-        elif has_class:
-            essay_q = f"【面试】{name} 的类设计体现了什么设计思想？如果要扩展新能力，你会怎么改？"
-        elif has_def:
-            essay_q = f"【面试】{name} 这个函数在真实项目里可能被谁调用、解决什么问题？如何测试它？"
-        else:
-            essay_q = f"【面试】{name} 这段代码在真实项目中可能解决什么问题？结合上下文说明。"
-        aux_questions.append({
-            "id": nid(), "type": "essay",
-            "question": essay_q,
-            "answer": code_snippet[:600],
-            "explanation": f"把代码文件与主课程知识关联，考察应用理解。",
-            "chapterRef": None, "difficulty": 3, "interview": True,
-            "ability": "AI 应用开发", "source": "file",
-        })
+
     elif ext in DATA_EXTS and lines:
         # 数据/配置 → 数据理解题
         head = lines[0][:80]
@@ -395,6 +392,39 @@ def process_aux_file(filename, content, qid_start=3000):
 
 
 # Q-2 修复：删掉从未使用的 api_base/model 死参数（api_key 仍用于 source.llmEnabled 标记）
+def build_comprehensive_interviews(course, max_count=5):
+    """目录级综合参考面试题：结合整个目录资料（标题 / 概念 / 章节 / 代码文件）提炼，
+    作为面试弹药参考——要准、要综合，不逐代码文件堆量。"""
+    title = (course.get("title") or "本课程")[:30]
+    concepts = [c.get("name") for c in (course.get("concepts") or []) if c.get("name")][:3]
+    chapters = [c.get("title") for c in (course.get("chapters") or []) if c.get("title")][:3]
+    code_files = [m.get("file") for m in (course.get("materials") or []) if m.get("type") == "code"][:3]
+    c1 = concepts[0] if concepts else "本课核心概念"
+    c2 = concepts[1] if len(concepts) > 1 else (concepts[0] if concepts else "本课核心概念")
+    ch1 = chapters[0] if chapters else "核心章节"
+    code1 = code_files[0] if code_files else "示例代码"
+    code2 = code_files[1] if len(code_files) > 1 else code1
+    templates = [
+        f"【面试】本课程《{title}》围绕「{c1}」展开，面试官问：这个概念在真实项目中解决什么问题、落地要注意什么？你会怎么组织回答？",
+        f"【面试】课程在「{ch1}」里用 {code1} 做了实现。面试官让你现场讲这段实现的设计思路与可扩展性，你怎么讲？",
+        f"【面试】{c2} 与工程实践结合时常见的问题有哪些（边界、性能、安全）？结合本课程资料举例说明。",
+        f"【面试】给一个新人讲清《{title}》的{ch1}，你会用怎样的真实业务场景来讲解？",
+        f"【面试】面试官问：把 {code1} 和 {code2} 用到真实项目里，你如何做代码评审与测试？",
+    ]
+    out = []
+    for i, q in enumerate(templates[:max_count]):
+        out.append({
+            "id": 4000 + i, "type": "essay",   # 综合面试题固定段（引擎 2000+ / aux 3000+ / 综合面试 4000+）
+            "question": q,
+            "answer": "参考：结合本目录资料《" + title + "》中相关概念与代码组织回答。",
+            "explanation": "综合参考面试题：由整个目录资料（概念/章节/代码）提炼，面试考核时作为该岗位的参考弹药。",
+            "chapterRef": None, "difficulty": 3, "interview": True,
+            "ability": "AI 应用开发", "source": "file",
+            "dimension": "interview",
+        })
+    return out
+
+
 def build_course_from_md(uid, md, filename, api_key=None):
     """完整流水线：解析笔记 → 返回课程 JSON。
 
