@@ -278,35 +278,41 @@ function adaptivePick(pool, limit) {
   const avgPct = recent.length ? recent.reduce((s, h) => s + (h.pct || 0), 0) / recent.length : null;
 
   // 1. 难度浮动（加权）：水平高 → 难题占约 70%；水平低 → 基础题占约 70%
+  let chosen = null;
   if (avgPct !== null && pool.length >= limit) {
     if (avgPct >= 80) {
       const hard = pool.filter((q) => (q.difficulty || 2) >= 3);
       const easy = pool.filter((q) => (q.difficulty || 2) < 3);
       if (hard.length >= Math.ceil(limit * 0.4)) {
         const hardCount = Math.min(hard.length, Math.ceil(limit * 0.7));
-        return shuffle(hard).slice(0, hardCount).concat(shuffle(easy).slice(0, limit - hardCount));
+        chosen = shuffle(hard).slice(0, hardCount).concat(shuffle(easy).slice(0, limit - hardCount));
       }
     } else if (avgPct < 55) {
       const easy = pool.filter((q) => (q.difficulty || 2) <= 2);
       const hard = pool.filter((q) => (q.difficulty || 2) > 2);
       if (easy.length >= Math.ceil(limit * 0.4)) {
         const easyCount = Math.min(easy.length, Math.ceil(limit * 0.7));
-        return shuffle(easy).slice(0, easyCount).concat(shuffle(hard).slice(0, limit - easyCount));
+        chosen = shuffle(easy).slice(0, easyCount).concat(shuffle(hard).slice(0, limit - easyCount));
       }
     }
   }
 
   // 2. 薄弱维度加权：得分 < 60 的维度多出题（约占 60%）
-  const weakAbilities = Object.keys(profilePct).filter((a) => (profilePct[a] || 100) < 60);
-  if (weakAbilities.length) {
-    const weakQs = pool.filter((q) => weakAbilities.includes(q.ability));
-    const otherQs = pool.filter((q) => !weakAbilities.includes(q.ability));
-    if (weakQs.length) {
-      const weakCount = Math.min(weakQs.length, Math.ceil(limit * 0.6));
-      return shuffle(weakQs).slice(0, weakCount).concat(shuffle(otherQs).slice(0, limit - weakCount));
+  if (!chosen) {
+    const weakAbilities = Object.keys(profilePct).filter((a) => (profilePct[a] || 100) < 60);
+    if (weakAbilities.length) {
+      const weakQs = pool.filter((q) => weakAbilities.includes(q.ability));
+      const otherQs = pool.filter((q) => !weakAbilities.includes(q.ability));
+      if (weakQs.length) {
+        const weakCount = Math.min(weakQs.length, Math.ceil(limit * 0.6));
+        chosen = shuffle(weakQs).slice(0, weakCount).concat(shuffle(otherQs).slice(0, limit - weakCount));
+      }
     }
   }
-  return shuffle(pool).slice(0, limit);
+  if (!chosen) chosen = shuffle(pool).slice(0, limit);
+  // 整体打乱顺序：保持「自适应抽题配比」（难题/薄弱维度占比不变），但题目排列顺序完全随机，
+  // 避免「难题永远在前 / 薄弱维度永远在前」的固定顺序
+  return shuffle(chosen);
 }
 
 function injectReviewQuestions(filtered, mode) {

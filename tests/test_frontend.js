@@ -256,6 +256,21 @@ test("回顾题按模式过滤：实战考核只注入实战题", () => {
   const out = raw("injectReviewQuestions(" + JSON.stringify(base) + ", 'practical')");
   assert.ok(out.every((q) => q.type === "practical"), "实战考核回顾题应全是实战题");
 });
+test("adaptivePick 分组抽题后整体打乱顺序（顺序随机）", () => {
+  raw("state.abilityProfile = { 'RAG 与知识库': { sum: 300, count: 10, lastAt: Date.now() } };");
+  const pool = [];
+  for (let i = 0; i < 20; i++) pool.push({ question: "题" + i, ability: (i % 2 ? "RAG 与知识库" : "提示词工程"), difficulty: 2 });
+  const orders = new Set();
+  for (let i = 0; i < 8; i++) {
+    const out = raw("adaptivePick(" + JSON.stringify(pool) + ", 10)");
+    orders.add(JSON.stringify(out.map((q) => q.question)));
+  }
+  assert.ok(orders.size >= 2, "多次调用顺序应不同（实际 " + orders.size + " 种）");
+});
+test("adaptivePick 最终整体打乱（源码级）", () => {
+  const src = raw("adaptivePick.toString()");
+  assert.ok(src.includes("return shuffle(chosen)"), "分组后应整体打乱再返回");
+});
 
 console.log("\n== 面试上下文随机采样 ==");
 test("资料多时每次采样不同（随机性）", () => {
