@@ -1160,8 +1160,8 @@ async function handleImportFileList(mdFiles) {
         // 注：「题库 = 考核 × 2 考两次不重复」仅对章节考核成立（8×2=16）；综合考核单目录 16 道会被抽满，需导入 ≥2 个目录聚合才够 2 次量
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         const genParts = [
-          { key: "theory", label: "理论 16 道", icon: "📘", count: 16 },
-          { key: "practical", label: "实战 10 道", icon: "🛠️", count: 10 },
+          { key: "theory", label: "生成理论题 ing..", icon: "📘" },
+          { key: "practical", label: "生成实战题 ing..", icon: "🛠️" },
         ];
         const partsBox = $("#import-status .imp-parts");
         if (partsBox) {
@@ -1201,7 +1201,9 @@ async function handleImportFileList(mdFiles) {
             llmMade++;
             added++;
           }
-          if (stEl) stEl.textContent = "✅ 完成 " + added + " 道";
+          const lblEl = partsBox ? partsBox.querySelector(`.imp-part[data-part="${gp.key}"] .imp-part-label`) : null;
+          if (lblEl) lblEl.textContent = "完成 " + added + " 道";
+          if (stEl) stEl.textContent = "✅";
         });
         // 实战题数量校验与补足：必须至少 10 道实战（llm_code 不强制，由考核阶段动态生成兜底）——纯 LLM 驱动，无引擎题
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
@@ -1238,7 +1240,9 @@ async function handleImportFileList(mdFiles) {
           throw err;
         }
         const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
-        if (stElP) stElP.textContent = "✅ 完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
+        const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
+        if (lblP) lblP.textContent = "完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
+        if (stElP) stElP.textContent = "✅";
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
         if (!llmMade) {
           clearInterval(pTimer);
