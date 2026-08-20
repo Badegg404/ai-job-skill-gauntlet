@@ -39,7 +39,7 @@ const TEACHING_METHODS = `【出题教学法（务必融入，让题目考察真
  * ============================================================ */
 
 /* 导入出题（理论部分）：16 道（choice 8 + true_false 4 + fill_blank 4）——与实战拆分两次请求，避免一次 26 道超长截断；重复由前端 seenTxt 去重兜底 */
-function buildImportTheoryPrompt(courseTitle, concepts, chapters, difficulties, badTxt) {
+function buildImportTheoryPrompt(courseTitle, concepts, chapters, difficulties, badTxt, count) {
   return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
 
 请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
@@ -57,12 +57,12 @@ ${badTxt}` : ""}
 
 ${TEACHING_METHODS}
 
-请生成 16 道理论题（8 道概念辨析选择 + 4 道判断 + 4 道填空）——作为理论考核题库，覆盖不同知识点、不要雷同：
+请生成 ${count || 16} 道理论题（${Math.round((count || 16) / 2)} 道概念辨析选择 + ${Math.round((count || 16) / 4)} 道判断 + ${Math.round((count || 16) / 4)} 道填空）——作为理论考核题库，覆盖不同知识点、不要雷同：
 
 一、理论维度（dimension 填 "theory"）—— 考察概念/原理的客观掌握，全为客观题（选择 / 判断 / 填空）：
-  8 道概念辨析选择题（4 选项，correctIndex 为 0-3，题干基于核心概念，覆盖不同知识点、不要雷同）
-  4 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
-  4 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
+  ${Math.round((count || 16) / 2)} 道概念辨析选择题（4 选项，correctIndex 为 0-3，题干基于核心概念，覆盖不同知识点、不要雷同）
+  ${Math.round((count || 16) / 4)} 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
+  ${Math.round((count || 16) / 4)} 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
 
 输出 JSON 格式（严格，不要多余文字）：
 {
@@ -86,7 +86,7 @@ ${TEACHING_METHODS}
 }
 
 /* 导入出题（实战部分）：10 道 code_choice（引用真实代码）——与理论拆分两次请求 */
-function buildImportPracticalPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt) {
+function buildImportPracticalPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt, count) {
   return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
 
 请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
@@ -106,17 +106,16 @@ ${badTxt}` : ""}
 
 ${TEACHING_METHODS}
 
-请生成 10 道代码实战题——以代码客观题（code_choice）为主，总量必须 10 道；尽量包含 2 道写代码任务题（llm_code），但 llm_code 数量不作硬性要求（能出几道算几道，不足的用 code_choice 补足 10 道）；类型多样化、不要雷同：
+请生成 ${count || 10} 道代码实战题——全部为代码客观题（code_choice），总量必须 ${count || 10} 道；类型多样化、不要雷同：
 
 二、实战维度（dimension 填 "practical"）—— 基于课程【真实代码】：
-  A. code_choice 代码客观题（type 用 "practical"，practical.compareMode 填 "code_choice"）为主，共 10 道减去 llm_code 道数（如没出 llm_code 就 10 道全客观）：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（不要全同一种，5 种类型尽量都覆盖，同一段代码也可以从不同角度出题但要保证不雷同），在以下 5 种中选：
+  A. code_choice 代码客观题（type 用 "practical"，practical.compareMode 填 "code_choice"），共 ${count || 10} 道：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（不要全同一种，5 种类型尽量都覆盖，同一段代码也可以从不同角度出题但要保证不雷同），在以下 5 种中选：
   - spotlight 代码片段作用题：practical.code 放真实代码片段，highlightLines 标注其中一段的行号，问「标注段的作用/功能是什么」（单选，multi=false）
   - functions 代码功能多选：practical.code 放真实代码，问「这段代码实现的【关键功能】有哪几个」（多选，multi=true）
   - trace 输出预测：practical.code 放真实代码 + 题干给输入，问「运行结果/输出是什么」（单选）
   - bugfix Bug 修复：practical.code 放有缺陷的真实代码，highlightLines 标注问题行，问「正确的修复是哪个」（单选）
   - progression 递进 / compare 对比：当代码文件有多个（如 demo-1.py、demo-2.py 名称有序），用 practical.codeBlocks（[{"file":"demo-1.py","code":"..."},{"file":"demo-2.py","code":"..."}]）出跨文件题——问「相对上一版新增的关键能力 / 两种实现的本质区别与优劣」（单选或 multi=true 多选）
-  B. 尽量 2 道写代码任务题（practical.compareMode 填 "llm_code"，数量不强制）：从上面某个代码文件的【实现逻辑】出发，问用户「这块代码该如何写/如何实现」，并在题干中提示参考实现所在文件（如「提示：参考实现可在 {文件名} 中找到」）；task 描述具体编码任务（轻量函数/逻辑题，不要完整大项目），referenceAnswer 给参考实现，scoringPoints 给 2-4 条评分要点。
-  题干要贴合真实业务场景，不要空泛；code_choice 题正确选项必须对应代码的真实行为，practical.correctIndex 填正确选项下标数组（单选 [n]，多选 [a,b,...]）；llm_code 题不需要 options/correctIndex。
+  题干要贴合真实业务场景，不要空泛；code_choice 题正确选项必须对应代码的真实行为，practical.correctIndex 填正确选项下标数组（单选 [n]，多选 [a,b,...]）。
 
 输出 JSON 格式（严格，不要多余文字）：
 {
@@ -143,23 +142,6 @@ ${TEACHING_METHODS}
       "dimension": "practical",
       "chapterRef": null
     },
-    {
-      "type": "practical",
-      "question": "写代码任务描述（含提示：参考实现位于哪个文件）",
-      "practical": {
-        "task": "具体编码任务",
-        "codeContext": "可选的代码上下文/提示",
-        "referenceAnswer": "参考实现代码",
-        "scoringPoints": ["评分要点1", "评分要点2", "评分要点3"],
-        "compareMode": "llm_code"
-      },
-      "answer": "参考实现",
-      "explanation": "讲解与评分要点",
-      "ability": "${ABILITY_WHITELIST}",
-      "difficulty": 4,
-      "dimension": "practical",
-      "chapterRef": null
-    }
   ]
 }`;
 }

@@ -1087,9 +1087,9 @@ async function browserLLMGenerate(course, part) {
   const maxTokens = part === "theory" ? 4500 : part === "practical" ? 7000 : 10000;
   const system = SYSTEM.examiner;
   const prompt = part === "theory"
-    ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt())
+    ? buildImportTheoryPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, flaggedQuestionTxt(), 4)
     : part === "practical"
-    ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt())
+    ? buildImportPracticalPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt(), 3)
     : buildImportPrompt((course.title || "").slice(0, 50), concepts, chapters, difficulties, codeFiles, flaggedQuestionTxt());
 
   // 实战硬校验仅在有代码文件时生效（纯笔记目录实战轮可返回空，不阻塞导入）

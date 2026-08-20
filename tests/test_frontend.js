@@ -235,8 +235,8 @@ test("导入拆分两次：理论/实战独立 prompt", () => {
   const pp = raw("buildImportPracticalPrompt('课程', '概念', '章节', '难点', '【demo-1.py】\\nprint(1)', '')");
   assert.ok(pp.includes("10 道代码实战题"), "实战 prompt 10 道");
   assert.ok(pp.includes("code_choice"), "实战 prompt 含代码客观题");
-  assert.ok(pp.includes("llm_code"), "实战 prompt 含写代码任务题");
-  assert.ok(pp.includes("提示：参考实现可在"), "写代码题提示参考文件位置");
+  assert.ok(!pp.includes("llm_code"), "实战 prompt 已放弃批量 llm_code（由考核动态生成兜底）");
+  assert.ok(pp.includes("全部为代码客观题"), "实战 prompt 全 code_choice");
 });
 test("buildImportPrompt 含代码实战客观题要求", () => {
   const p = raw("buildImportPrompt('课程', '概念', '章节', '难点', '【demo-1.py】\\nprint(1)')");
