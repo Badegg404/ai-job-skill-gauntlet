@@ -14,12 +14,10 @@ function inferDimension(q) {
 
 /* ===== 主渲染入口 ===== */
 
-function extractLLMQuestions(data) {
-  const content = data.choices && data.choices[0] && data.choices[0].message
-    ? data.choices[0].message.content : "";
-  if (!content) return [];
-  // 剥 markdown 代码块（```json ... ``` / ``` ... ```），LLM 常把 JSON 包在代码块里
-  let c = content.trim();
+function parseLLMJSON(content) {
+  // 通用 LLM JSON 解析：剥 markdown 代码块 → JSON.parse → 截取大括号 → 补全截断
+  if (!content) return null;
+  let c = String(content).trim();
   const fence = c.match(/^```[a-zA-Z]*\s*([\s\S]*?)```\s*$/);
   if (fence && fence[1].trim()) c = fence[1].trim();
   let parsed = null;
@@ -34,6 +32,14 @@ function extractLLMQuestions(data) {
       }
     }
   }
+  return parsed;
+}
+
+function extractLLMQuestions(data) {
+  const content = data.choices && data.choices[0] && data.choices[0].message
+    ? data.choices[0].message.content : "";
+  if (!content) return [];
+  const parsed = parseLLMJSON(content);
   // questions 可能不在顶层（如 {"data": {"questions": [...]} 或直接是数组）——递归查找含 question 的数组
   let qs = (parsed && parsed.questions) ? parsed.questions : [];
   if (!Array.isArray(qs) || !qs.length) {

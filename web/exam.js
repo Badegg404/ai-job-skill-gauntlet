@@ -916,9 +916,15 @@ const JSON_FORMAT_HINT = `【输出格式要求（程序会严格校验，不满
 4. 字符串用英文双引号，数组用方括号，数量必须达到要求，不要少出
 5. 实在无法生成时输出 {"questions": []}`;
 
+const INTERVIEW_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象，不要 markdown 代码块（不要用三个反引号包裹），不要任何解释、前后缀文字
+2. 字段名严格按上面要求输出，一个都不能改
+3. 字符串用英文双引号`;
+
 async function llmJSON(opts) {
-  // opts: { system, prompt, formatHint, minCount, maxRetries, part, maxTokens }
-  // 返回符合约束的题目数组（已通过 extractLLMQuestions 归一化+校验）
+  // opts: { system, prompt, formatHint, minCount, maxRetries, part, maxTokens, expect }
+  // expect: "questions"（默认）返回题目数组（归一化+校验）；"object" 返回任意解析成功的 JSON 对象（面试出题/追问/评分）
+  // 两者都带校验失败反馈重出（Agently custom() 机制）
   if (!LLM_KEY) return [];
   const base = String(LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = LLM_MODEL || "deepseek-chat";
@@ -929,6 +935,9 @@ async function llmJSON(opts) {
   const minCount = opts.minCount || 0;
   const maxRetries = opts.maxRetries || 3;
   const part = opts.part || "all";
+  const expect = opts.expect || "questions";
+  const validateObj = opts.validateObj || null;   // expect=object 时的校验函数（返回错误信息或 null）
+  const temperature = opts.temperature || 0.8;    // 评分等场景可降低温度
   let curPrompt = prompt + "\n\n" + formatHint;
   let lastErr = null;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -942,7 +951,7 @@ async function llmJSON(opts) {
           { role: "system", content: system },
           { role: "user", content: curPrompt },
         ],
-        temperature: 0.8,
+        temperature: temperature,
         max_tokens: maxTokens,
         ...(withFormat ? { response_format: { type: "json_object" } } : {}),
       }),
@@ -988,6 +997,19 @@ async function llmJSON(opts) {
     }
     const data = await res.json();
     const rawContent = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    if (expect === "object") {
+      // 通用对象模式：解析成功且通过校验即返回（面试出题/追问/评分）
+      const parsedObj = parseLLMJSON(rawContent);
+      const validErr = (parsedObj && validateObj) ? validateObj(parsedObj) : null;
+      if (parsedObj && !validErr) {
+        reportDebug("llm-ok", { part, attempt, count: 1, rawLen: rawContent.length });
+        return parsedObj;
+      }
+      lastErr = new Error(validErr || "JSON 解析失败");
+      reportDebug("llm-fail", { part, attempt, msg: lastErr.message, contentHead: rawContent.slice(0, 800) });
+      curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】你上一次的输出未能通过程序校验：" + lastErr.message + "。请严格按【输出格式要求】重新输出完整 JSON（不要 markdown 代码块，不要多余文字）。";
+      continue;
+    }
     const qs = extractLLMQuestions(data);
     reportDebug("llm-ok", {
       part, attempt, count: qs.length, rawLen: rawContent.length,
@@ -1794,34 +1816,25 @@ const InterviewGraph = {
     ask: async (st) => {
       interviewBusyCount++;
       showInterviewTyping(true);
-      const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-      const model = LLM_MODEL || "deepseek-chat";
       const askedTxt = st.asked.length ? st.asked.map((q) => `- ${q}`).join("\n") : "（暂无）";
       const answeredTxt = st.history.map((h, i) => `${i + 1}. Q: ${h.question}\n   A: ${h.answer.slice(0, 200)}`).join("\n") || "（暂无）";
       const qPrompt = buildInterviewQuestionPrompt(st, askedTxt, answeredTxt);
-      const doRequest = async (withFormat) => {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 60000);
-        try {
-          const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: qPrompt }], temperature: 0.8, max_tokens: 800 };
-          if (withFormat) body.response_format = { type: "json_object" };
-          return await fetch(base + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY }, body: JSON.stringify(body), signal: ctrl.signal });
-        } finally { clearTimeout(timer); }
-      };
       try {
-        let res = await doRequest(true);
-        if (res.status === 400) res = await doRequest(false);
+        const askResult = await llmJSON({
+          system: buildInterviewerSystem(st.job),
+          prompt: qPrompt,
+          formatHint: INTERVIEW_JSON_HINT,
+          expect: "object",
+          maxTokens: 800,
+          part: "interview-ask",
+          validateObj: (o) => (o && o.question ? null : "缺少 question 字段"),
+        });
         showInterviewTyping(false);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const content = (await res.json()).choices[0].message.content;
-        let parsed = null;
-        try { parsed = JSON.parse(content); } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-        if (!parsed || !parsed.question) throw new Error("解析失败");
-        st.current = parsed;
-        st.asked.push(parsed.question);
-        const typeLabel = { essay: "💬 问答题", scenario: "🛠️ 场景题", code: "💻 代码题", choice: "🎯 选择题" }[parsed.type] || "💬 问答";
-        appendInterviewMessage("interviewer", parsed.question, `第 ${st.round + 1} 题 · ${typeLabel} · ${parsed.dimension || ""}`);
-        if (parsed.type === "choice" && parsed.options && parsed.options.length) appendInterviewOptions(parsed.options);
+        st.current = askResult;
+        st.asked.push(askResult.question);
+        const typeLabel = { essay: "💬 问答题", scenario: "🛠️ 场景题", code: "💻 代码题", choice: "🎯 选择题" }[askResult.type] || "💬 问答";
+        appendInterviewMessage("interviewer", askResult.question, `第 ${st.round + 1} 题 · ${typeLabel} · ${askResult.dimension || ""}`);
+        if (askResult.type === "choice" && askResult.options && askResult.options.length) appendInterviewOptions(askResult.options);
       } catch (e) {
         showInterviewTyping(false);
         const fp = (st.fallbackPool && st.fallbackPool.length) ? st.fallbackPool : st.job.sampleQuestions;
@@ -1853,7 +1866,7 @@ const InterviewGraph = {
       if (weakCount >= 4) return { next: "fail" };
       return { next: "judge" };
     },
-    // 评估节点：LLM 判断回答 → followup / advance / judged
+    // 评估节点：LLM 判断回答 → followup / advance / judged（统一 llmJSON 约束）
     judge: async (st) => {
       const q = st.current || {};
       const curQuestion = q.question || "";
@@ -1863,31 +1876,19 @@ const InterviewGraph = {
       if (sendBtn) sendBtn.disabled = true;
       showInterviewTyping(true);
       try {
-        const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-        const model = LLM_MODEL || "deepseek-chat";
         const followPrompt = buildInterviewFollowPrompt(st, q, curQuestion, ans, INTERVIEWER_TACTICS);
-        const doFollow = async (withFormat) => {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 60000);
-          try {
-            const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: followPrompt }], temperature: 0.6, max_tokens: 700 };
-            if (withFormat) body.response_format = { type: "json_object" };
-            return await fetch(base + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY }, body: JSON.stringify(body), signal: ctrl.signal });
-          } finally { clearTimeout(timer); }
-        };
-        let res = await doFollow(true);
-        if (res.status === 400) res = await doFollow(false);
+        const judgeResult = await llmJSON({
+          system: buildInterviewerSystem(st.job),
+          prompt: followPrompt,
+          formatHint: INTERVIEW_JSON_HINT,
+          expect: "object",
+          maxTokens: 700,
+          part: "interview-judge",
+        });
         showInterviewTyping(false);
-        st._followup = ""; st._advanceReply = ""; st._judged = "ok";
-        if (res.ok) {
-          const content = (await res.json()).choices[0].message.content;
-          try {
-            const parsed = JSON.parse(content);
-            st._followup = parsed.followup || "";
-            st._advanceReply = parsed.advance || "";
-            st._judged = parsed.judged === "weak" ? "weak" : "ok";
-          } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) { try { const p2 = JSON.parse(m[0]); st._followup = p2.followup || ""; st._advanceReply = p2.advance || ""; st._judged = p2.judged === "weak" ? "weak" : "ok"; } catch (e2) {} } }
-        }
+        st._followup = judgeResult.followup || "";
+        st._advanceReply = judgeResult.advance || "";
+        st._judged = judgeResult.judged === "weak" ? "weak" : "ok";
       } catch (e) {
         showInterviewTyping(false);
         st._followup = ""; st._advanceReply = ""; st._judged = "ok";
@@ -2035,21 +2036,19 @@ async function finishInterview() {
       <div id="interview-score" style="font-size:13px;color:var(--text-2);margin-top:12px">正在评估你的 ${st.history.length} 轮表现…</div>
     </div>`);
   try {
-    const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-    const model = LLM_MODEL || "deepseek-chat";
     const historyTxt = st.history.map((h, i) => `${i + 1}. [${h.dimension}] Q: ${h.question}\n   A: ${h.answer.slice(0, 400)}${h.weak ? "（⚠️ 直接答「不知道/不会」，未作答，应严格扣分）" : ""}`).join("\n\n");
     const scorePrompt = buildInterviewScorePrompt(st, historyTxt);
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: scorePrompt }], temperature: 0.3, max_tokens: 2000, response_format: { type: "json_object" } }),
+    // 评分统一走 llmJSON 约束（解析失败自动反馈重出，最多 3 次）
+    const scoreResult = await llmJSON({
+      system: buildInterviewerSystem(st.job),
+      prompt: scorePrompt,
+      formatHint: INTERVIEW_JSON_HINT,
+      expect: "object",
+      maxTokens: 2000,
+      temperature: 0.3,
+      part: "interview-score",
     });
-    let parsed = null;
-    if (res.ok) {
-      const content = (await res.json()).choices[0].message.content;
-      try { parsed = JSON.parse(content); } catch (e) { const m = content.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-    }
-    renderInterviewResult(parsed);
+    renderInterviewResult(scoreResult);
   } catch (e) {
     // 评分失败兜底：给一个带总评的结果，避免空结果页（点评/总评全部丢失）
     renderInterviewResult({
