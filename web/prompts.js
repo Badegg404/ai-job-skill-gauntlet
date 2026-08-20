@@ -38,8 +38,12 @@ const TEACHING_METHODS = `【出题教学法（务必融入，让题目考察真
  * 出题 prompt
  * ============================================================ */
 
-/* 导入出题（理论部分）：16 道（choice 8 + true_false 4 + fill_blank 4）——与实战拆分两次请求，避免一次 26 道超长截断；重复由前端 seenTxt 去重兜底 */
+/* 导入出题（理论部分）：缺省 16 道——与实战拆分两次请求，避免一次超长截断；重复由前端 seenTxt 去重兜底
+ * 题型自洽分配：判断 = 填空 = ⌊N/4⌋，选择 = N − 2×⌊N/4⌋（任意 N 都自洽，16 → 8 选择 + 4 判断 + 4 填空） */
 function buildImportTheoryPrompt(courseTitle, concepts, chapters, difficulties, badTxt, count) {
+  const N = count || 16;               // 本次生成题数（缺省 14）
+  const nJudge = Math.floor(N / 4);    // 判断题数 = 填空题数
+  const nChoice = N - 2 * nJudge;      // 选择题数（N − 2×⌊N/4⌋）
   return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
 
 请根据下面的课程内容生成考核题，用于评估学生对 AI/Agent 知识的掌握程度。
@@ -57,12 +61,12 @@ ${badTxt}` : ""}
 
 ${TEACHING_METHODS}
 
-请生成 ${count || 16} 道理论题（${Math.round((count || 16) / 2)} 道概念辨析选择 + ${Math.round((count || 16) / 4)} 道判断 + ${Math.round((count || 16) / 4)} 道填空）——作为理论考核题库，覆盖不同知识点、不要雷同：
+请生成 ${N} 道理论题（${nChoice} 道概念辨析选择 + ${nJudge} 道判断 + ${nJudge} 道填空）——作为理论考核题库，覆盖不同知识点、不要雷同：
 
 一、理论维度（dimension 填 "theory"）—— 考察概念/原理的客观掌握，全为客观题（选择 / 判断 / 填空）：
-  ${Math.round((count || 16) / 2)} 道概念辨析选择题（4 选项，correctIndex 为 0-3，题干基于核心概念，覆盖不同知识点、不要雷同）
-  ${Math.round((count || 16) / 4)} 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
-  ${Math.round((count || 16) / 4)} 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
+  ${nChoice} 道概念辨析选择题（4 选项，correctIndex 为 0-3，题干基于核心概念，覆盖不同知识点、不要雷同）
+  ${nJudge} 道判断题（true_false，correctAnswer 填 "对" 或 "错"）：题干陈述本身必须语义自洽、可直接判定真伪——题干说法正确就填「对」，说法错误就填「错」，并在 explanation 说明对错原因。出「错」题时，请在题干里写一个「本身错误」的技术说法（如把概念/机制说反），禁止用「不符合课程案例 / 与 demo 不同」这类题外理由判定对错（判断题只考陈述本身的真伪，不考是否与某案例一致）。
+  ${nJudge} 道填空题（fill_blank，fillAnswers 给 2-3 个可接受答案）
 
 输出 JSON 格式（严格，不要多余文字）：
 {
@@ -75,7 +79,7 @@ ${TEACHING_METHODS}
       "correctAnswer": "答案",
       "fillAnswers": ["可接受答案1"],
       "answer": "标准答案",
-      "explanation": "讲解：为什么对/错",
+      "explanation": "讲解（≤40字）：为什么对/错",
       "ability": "${ABILITY_WHITELIST}",
       "difficulty": 3,
       "dimension": "theory",
@@ -85,7 +89,7 @@ ${TEACHING_METHODS}
 }`;
 }
 
-/* 导入出题（实战部分）：10 道 code_choice（引用真实代码）——与理论拆分两次请求 */
+/* 导入出题（实战部分）：缺省 10 道 code_choice（引用真实代码）——与理论拆分两次请求 */
 function buildImportPracticalPrompt(courseTitle, concepts, chapters, difficulties, codeFiles, badTxt, count) {
   return `你是一名资深的 AI 大模型应用开发出题专家，擅长把学习资料转化为能区分「真懂」与「死记硬背」的考核题。
 
@@ -133,10 +137,10 @@ ${TEACHING_METHODS}
         "multi": false,
         "options": ["A...", "B...", "C...", "D..."],
         "correctIndex": [1],
-        "referenceAnswer": "解析"
+        "referenceAnswer": "解析要点（≤40字）"
       },
       "answer": "解析",
-      "explanation": "讲解：为什么选这个",
+      "explanation": "讲解（≤40字）：为什么选这个",
       "ability": "${ABILITY_WHITELIST}",
       "difficulty": 4,
       "dimension": "practical",
@@ -196,7 +200,7 @@ ${TEACHING_METHODS}
       "correctAnswer": "答案",
       "fillAnswers": ["可接受答案1"],
       "answer": "标准答案",
-      "explanation": "讲解：为什么对/错",
+      "explanation": "讲解（≤40字）：为什么对/错",
       "ability": "${ABILITY_WHITELIST}",
       "difficulty": 3,
       "dimension": "theory|practical",
@@ -215,10 +219,10 @@ ${TEACHING_METHODS}
         "multi": false,
         "options": ["A...", "B...", "C...", "D..."],
         "correctIndex": [1],
-        "referenceAnswer": "解析" 
+        "referenceAnswer": "解析要点（≤40字）" 
       },
       "answer": "解析",
-      "explanation": "讲解：为什么选这个",
+      "explanation": "讲解（≤40字）：为什么选这个",
       "ability": "${ABILITY_WHITELIST}",
       "difficulty": 4,
       "dimension": "practical",

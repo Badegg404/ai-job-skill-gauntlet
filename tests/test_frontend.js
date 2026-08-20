@@ -426,7 +426,7 @@ test("llmPickQuestions 提示词区分章节与综合考核", () => {
   assert.ok(src.includes("综合考核"), "综合场景提示词");
   assert.ok(src.includes("scope"), "应有场景参数");
 });
-test("综合考核题量翻倍于章节（16:10 vs 8:5）", () => {
+test("综合考核题量（16:10）与章节（8:5）", () => {
   const se = raw("startExam.toString()");
   const sd = raw("startDirExam.toString()");
   assert.ok(se.includes("16 : 10"), "综合考核理论16/实战10");
@@ -545,18 +545,11 @@ test("实战 prompt count 参数化：3 道全 code_choice", () => {
   assert.ok(!p.includes("llm_code"), "无 llm_code 要求");
 });
 
-test("alignTheoryCount 不变量：任意缺失量对齐到 4 的倍数（下限 4）", () => {
-  const cases = [[0,4],[1,4],[2,4],[3,4],[4,4],[5,8],[6,8],[7,8],[8,8],[9,12],[12,12],[15,16],[16,16],[17,20]];
-  for (const [inp, want] of cases) {
-    const got = json("alignTheoryCount(" + inp + ")");
-    assert.strictEqual(got, want, "alignTheoryCount(" + inp + ") = " + got + " ≠ " + want);
-  }
-});
-test("理论 prompt 对 4 倍数 count 渲染自洽（题型和 = count）", () => {
-  for (const n of [4, 8, 12, 16]) {
+test("理论 prompt 题型分配自洽（任意 count：选择 = N−2×⌊N/4⌋，判断 = 填空 = ⌊N/4⌋）", () => {
+  for (const n of [4, 8, 12, 14, 16]) {
     const p = raw("buildImportTheoryPrompt(\'课程\', \'概念\', \'章节\', \'难点\', \'\', " + n + ")");
-    const sel = n / 2, jud = n / 4, fill = n / 4;
-    assert.ok(p.includes(sel + " 道概念辨析") && p.includes(jud + " 道判断题") && p.includes(fill + " 道填空题"), "count=" + n + " 题型 " + sel + "+" + jud + "+" + fill);
+    const jud = Math.floor(n / 4), sel = n - 2 * jud;
+    assert.ok(p.includes(sel + " 道概念辨析") && p.includes(jud + " 道判断题") && p.includes(jud + " 道填空题"), "count=" + n + " 题型 " + sel + "+" + jud + "+" + jud);
   }
 });
 

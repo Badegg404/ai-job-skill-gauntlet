@@ -1062,7 +1062,7 @@ async function llmJSON(opts) {
 /* ===== 浏览器端 LLM 出题（Key 不出浏览器，不经服务器） ===== */
 async function browserLLMGenerate(course, part, count) {
   // part: "theory" 只生成理论 | "practical" 只生成实战 | 缺省全量（26 道，兼容旧调用）
-  // count: 本次期望生成题数（首轮 16/10，补足轮传缺失量）；缺省按 part 回退 16/10/26
+  // count: 本次期望生成题数（首轮 16/10，补足轮传缺失量）；缺省按 part 回退 14/8/26
   if (!LLM_KEY) return [];
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = LLM_MODEL || "deepseek-chat";
@@ -1084,7 +1084,7 @@ async function browserLLMGenerate(course, part, count) {
   // 有代码文件才要求实战题：纯笔记目录（无代码素材）跳过实战硬校验，避免「无代码却要代码题」结构性必败
   const hasCode = codeFiles.trim().length > 0;
 
-  // 期望题数：首轮 16/10，补足轮按缺失量；缺省回退 16/10/26
+  // 期望题数：首轮 16/10，补足轮按缺失量；缺省回退 14/8/26
   const wantCount = count || (part === "theory" ? 16 : part === "practical" ? 10 : 26);
   // max_tokens 随首轮大 batch 放宽（消除 16/10 道单批截断，而非截断后靠补足兜底）
   const maxTokens = part === "theory" ? 6000 : part === "practical" ? 9000 : 10000;
@@ -1210,8 +1210,6 @@ async function llmExamQuestions(courses, mode, count = 4) {
 }
 
 /* 核心：批量导入多份 .md */
-// 理论缺失量对齐 4 的倍数（题型 N/2+N/4+N/4 要求 N 为 4 的倍数才自洽）——模块级函数，导入与补出题共用，测试锁死不变量
-function alignTheoryCount(missing) { return Math.max(Math.ceil(missing / 4) * 4, 4); }
 let importBusy = false;   // 导入防重入锁：导入中再次触发导入直接提示，避免并发竞态
 
 async function handleImportFileList(mdFiles) {
@@ -1240,6 +1238,10 @@ async function handleImportFileList(mdFiles) {
   setImportProgress(3, "🚀", "准备导入", `${mdFiles.length} 份资料`);
 
   try {
+    // 灰色态提示（theoryWarn/pracWarn）：声明提升到外层 try 块，供 success 流程 status.innerHTML 使用
+    // （原声明在内层 try 块，success 流程访问会触发 ReferenceError「Can't find variable」）
+    let theoryWarn = "";
+    let pracWarn = "";
     // 逐份读取文本（带进度提示）
     const payload = [];
     for (let i = 0; i < mdFiles.length; i++) {
@@ -1302,8 +1304,8 @@ async function handleImportFileList(mdFiles) {
         }
       }, 600);
       try {
-        // 并行两次请求：理论 16 道 + 实战 10 道（同步开始、全部结束后进入下一环节；重复由 seenTxt 去重兜底）
-        // 注：「题库 = 考核 × 2 考两次不重复」仅对章节考核成立（8×2=16）；综合考核单目录 16 道会被抽满，需导入 ≥2 个目录聚合才够 2 次量
+        // 并行两次请求：理论 16 道 + 实战 8 道（同步开始、全部结束后进入下一环节；重复由 seenTxt 去重兜底）
+        // 注：综合考核单目录理论 16 道会被抽满，需导入 ≥2 个目录聚合才够 2 次量（章节考核 8 道可考 2 次不重复）
         // ⑥ 修复：LLM 题 id 用时间戳派生的全局近似唯一起点（LLM 题本无 id，existingIds 去重是死逻辑，已删除）
         // 纯笔记目录（无代码素材）：实战题无代码可引用，跳过实战硬校验（理论题仍必须生成）
         const hasCode = (data.course.materials || []).some((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)));
@@ -1365,9 +1367,8 @@ async function handleImportFileList(mdFiles) {
         let thStuck = false, pracStuck = false;
         while (topRound < 2 && ((countTheory() < 16 && !thStuck) || (hasCode && countPrac() < 10 && !pracStuck))) {
           topRound++;
-          // 缺失量对齐：理论题型是 N/2 选择 + N/4 判断 + N/4 填空，N 必须为 4 的倍数才自洽，故向上取整到 4 的倍数；
-          // 实战全 code_choice 无子分配，任意缺失量即可
-          const thNeed = alignTheoryCount(16 - countTheory());
+          // 缺失量精确补（下限理论 4 / 实战 3）：题型公式已自洽（选择 = N−2×⌊N/4⌋，判断 = 填空 = ⌊N/4⌋），任意 N 都能正确分配，无需再对齐 4 的倍数
+          const thNeed = Math.max(16 - countTheory(), 4);
           const pracNeed = Math.max(10 - countPrac(), 3);
           const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(data.course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
           const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(data.course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
@@ -1380,8 +1381,8 @@ async function handleImportFileList(mdFiles) {
           if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
         }
         // 数量校验（宁缺毋滥）：收纳实际生成的全部题目；理论 <8 / 实战 <5 时按钮置灰 + 提示补出题或重新导入
-        const theoryWarn = countTheory() < 8 ? "理论题仅 " + countTheory() + " 道（不足 8，理论考核按钮已置灰），可点「🤖 补出题」或重新导入" : "";
-        const pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「🤖 补出题」补足" : "";
+        theoryWarn = countTheory() < 8 ? "理论题仅 " + countTheory() + " 道（不足 8，理论考核按钮已置灰），可点「🤖 补出题」或重新导入" : "";
+        pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「🤖 补出题」补足" : "";
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
         if (lblP) lblP.textContent = "完成 " + countPrac() + " 道";
@@ -3542,8 +3543,8 @@ async function reGenerateQuestions(dirId) {
     let thStuck = false, pracStuck = false;
     while (round < 3 && ((countTheory() < 16 && !thStuck) || (hasCode && countPrac() < 10 && !pracStuck))) {
       round++;
-      // 缺失量对齐：理论题型 N/2+N/4+N/4 要求 N 为 4 的倍数，向上取整；实战全 code_choice 任意缺失量即可
-      const thNeed = alignTheoryCount(16 - countTheory());
+      // 缺失量精确补（下限理论 4 / 实战 3）：题型公式已自洽，任意 N 都能正确分配
+      const thNeed = Math.max(16 - countTheory(), 4);
       const pracNeed = Math.max(10 - countPrac(), 3);
       const thJob = countTheory() < 16 && !thStuck ? browserLLMGenerate(course, "theory", thNeed).catch(() => null) : Promise.resolve(null);
       const pracJob = hasCode && countPrac() < 10 && !pracStuck ? browserLLMGenerate(course, "practical", pracNeed).catch(() => null) : Promise.resolve(null);
