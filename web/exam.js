@@ -998,6 +998,17 @@ async function llmJSON(opts) {
     const data = await res.json();
     const rawContent = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
     if (expect === "object") {
+      // 空响应 = 服务限流/异常：最多重试 2 次，不空转
+      if (!rawContent.length) {
+        reportDebug("llm-empty", { part, attempt });
+        if (attempt >= 2) {
+          lastErr = new Error("LLM 返回空内容（服务可能限流），已重试 " + attempt + " 次");
+          reportDebug("llm-fail", { part, msg: lastErr.message });
+          throw lastErr;
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
       // 通用对象模式：解析成功且通过校验即返回（面试出题/追问/评分）
       const parsedObj = parseLLMJSON(rawContent);
       const validErr = (parsedObj && validateObj) ? validateObj(parsedObj) : null;
@@ -1008,6 +1019,17 @@ async function llmJSON(opts) {
       lastErr = new Error(validErr || "JSON 解析失败");
       reportDebug("llm-fail", { part, attempt, msg: lastErr.message, contentHead: rawContent.slice(0, 800) });
       curPrompt = prompt + "\n\n" + formatHint + "\n\n【修正要求】你上一次的输出未能通过程序校验：" + lastErr.message + "。请严格按【输出格式要求】重新输出完整 JSON（不要 markdown 代码块，不要多余文字）。";
+      continue;
+    }
+    // 空响应（rawLen 0）= 服务限流/异常，重出大概率也空：最多重试 2 次（间隔 1.5s），不空转 3 次
+    if (!rawContent.length) {
+      reportDebug("llm-empty", { part, attempt });
+      if (attempt >= 2) {
+        lastErr = new Error("LLM 返回空内容（服务可能限流），已重试 " + attempt + " 次");
+        reportDebug("llm-fail", { part, msg: lastErr.message });
+        throw lastErr;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
       continue;
     }
     const qs = extractLLMQuestions(data);
