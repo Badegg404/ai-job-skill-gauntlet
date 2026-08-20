@@ -109,8 +109,8 @@ open dist/AI面试能力评估.app    # macOS
 
 The app guides first-time users through the flow step by step — no more wondering what to do first:
 
-- **🏠 Home-page guide bar** (always visible until all steps are done): a 4-step checklist — ① Configure LLM → ② Import study materials → ③ Take exams (theory / practical / interview) → ④ View your skill profile. Each step shows its real-time status (✅ done / 🔒 waiting), and the **next action you should take is highlighted with a "Go →" button**.
-- **🎬 Auto-played highlight tour** (first launch only, replayable anytime via the "👀 New-user guide demo" button): a spotlight overlay walks you through the 4 steps with a step bubble, and one click jumps straight into the target screen.
+- **🏠 Home-page guide bar** (always visible until all steps are done): a 6-step checklist — ① Configure LLM → ② Import study materials → ③ Chapter exam (per-section, recommended first) → ④ Comprehensive exam (all chapters mixed) → ⑤ Interview (AI interviewer, last challenge) → ⑥ View your skill profile. Each step shows its real-time status (✅ done / 🔒 waiting), and the **next action you should take is highlighted with a "Go →" button**.
+- **🎬 Auto-played highlight tour** (first launch only, replayable anytime via the "👀 New-user guide demo" button): a spotlight overlay walks you through the flow — chapter first, then comprehensive, interview last — with a step bubble and next/prev navigation.
 
 ### Configure the LLM (required)
 

@@ -185,15 +185,31 @@ test("配置 LLM 后 llm 完成，推荐下一步是 import", () => {
   assert.strictEqual(raw("guideStepDone('llm')"), true);
   assert.strictEqual(raw("guideNextStepId()"), "import");
 });
-test("引导条 HTML 含 4 个步骤节点", () => {
+test("引导条 HTML 含 6 个步骤节点", () => {
   const html = raw("renderGuideBarHTML()");
   assert.ok(html.includes("guide-bar"), "应含引导条容器");
-  assert.ok(html.includes("gs-llm") && html.includes("gs-import") && html.includes("gs-exam") && html.includes("gs-profile"), "应含 4 个步骤节点");
+  for (const id of ["gs-llm", "gs-import", "gs-chapter", "gs-cross", "gs-interview", "gs-profile"]) {
+    assert.ok(html.includes(id), "应含步骤节点 " + id);
+  }
 });
-test("模拟导入+考核+画像后全部完成", () => {
-  raw("state.imports = 1; state.exams = 2; COURSE = { title: 't', quiz: [{ type: 'choice' }] }; state.abilityProfile = { '提示词工程': { sum: 80, count: 2, lastAt: Date.now() } };");
+test("配置+导入后推荐下一步是 chapter（章节考核优先）", () => {
+  raw("state.imports = 1; COURSE = { title: 't', quiz: [{ type: 'choice' }] };");
   assert.strictEqual(raw("guideStepDone('import')"), true);
-  assert.strictEqual(raw("guideStepDone('exam')"), true);
+  assert.strictEqual(raw("guideNextStepId()"), "chapter");
+});
+test("完成章节考核后推荐 cross（综合考核）", () => {
+  raw("state.history = [{ mode: 'theory', cross: false }];");
+  assert.strictEqual(raw("guideStepDone('chapter')"), true);
+  assert.strictEqual(raw("guideNextStepId()"), "cross");
+});
+test("章节历史无 cross 标记不算完成（旧数据兼容）", () => {
+  raw("state.history = [{ mode: 'theory' }];");
+  assert.strictEqual(raw("guideStepDone('chapter')"), false);
+});
+test("完成综合+面试+画像后全部完成", () => {
+  raw("state.history = [{ mode: 'theory', cross: false }, { mode: 'practical', cross: true }]; state.crossExam = true; state.interviewLogs = [{ job: 'Agent 工程师', date: '2026-01-01' }]; state.abilityProfile = { '提示词工程': { sum: 80, count: 2, lastAt: Date.now() } }; state.exams = 3;");
+  assert.strictEqual(raw("guideStepDone('cross')"), true);
+  assert.strictEqual(raw("guideStepDone('interview')"), true);
   assert.strictEqual(raw("guideStepDone('profile')"), true);
   assert.strictEqual(raw("guideNextStepId()"), null);
 });
