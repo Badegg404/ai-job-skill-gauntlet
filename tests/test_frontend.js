@@ -89,8 +89,12 @@ test("true_false「True」→ 对", () => {
 test("choice correctIndex 数字 → 数组", () => {
   assert.deepStrictEqual(json("normalizeLLMQuestion({type:'choice', correctIndex: 2}).correctIndex"), [2]);
 });
-test("ability 非白名单 → 默认提示词工程", () => {
-  assert.strictEqual(json("normalizeLLMQuestion({type:'essay', ability:'随便写'}).ability"), "提示词工程");
+test("ability 非白名单 → 归入未分类（不进画像）", () => {
+  assert.strictEqual(json("normalizeLLMQuestion({type:'essay', ability:'随便写'}).ability"), "未分类");
+});
+test("fill_blank 判分按 q 精确更新（BUG-3 竞态防护）", () => {
+  const src = raw("applyFillBlankResult.toString()");
+  assert.ok(src.includes("answers.find"), "应按 q 精确查找记录而非最后一条");
 });
 test("ability 白名单保留", () => {
   assert.strictEqual(json("normalizeLLMQuestion({type:'essay', ability:'RAG 与知识库'}).ability"), "RAG 与知识库");

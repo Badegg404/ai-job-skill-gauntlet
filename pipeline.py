@@ -168,7 +168,13 @@ def build_dir_from_files(uid, files, api_key=None, api_base=None, model=None):
 
 def enrich_quiz(course):
     """为测验题补充默认字段（能力维度由 LLM 在前端打标签，此处仅兜底）。"""
+    kept = []
     for q in course.get("quiz", []):
+        # D-6 修复：模板未提供答案的选择题不可判分，直接剔除（不默认第 0 个选项，避免误导判分）
+        if q.get("type") in ("choice", "multi_choice"):
+            ci = q.get("correctIndex")
+            if not ci or (isinstance(ci, list) and not ci):
+                continue
         q.setdefault("difficulty", 2)
         q.setdefault("interview", False)
         q.setdefault("source", "current")
@@ -182,6 +188,8 @@ def enrich_quiz(course):
                 q["dimension"] = "interview"
             else:
                 q["dimension"] = "theory"
+        kept.append(q)
+    course["quiz"] = kept
     return course
 
 

@@ -243,7 +243,8 @@ function buildInterviewerSystem(job) {
 
 function buildInterviewQuestionPrompt(st, askedTxt, answeredTxt) {
   // 打乱参考题顺序，避免 LLM 每次都按固定顺序参考、导致出题顺序雷同
-  const shuffleArr = (a) => [...(a || [])].sort(() => Math.random() - 0.5);
+  // D-9 修复：统一用 Fisher-Yates 均匀洗牌（原 sort(() => Math.random()-0.5) 非均匀）
+  const shuffleArr = (a) => { const x = [...(a || [])]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
   const samples = shuffleArr(st.job.sampleQuestions);
   const reals = shuffleArr(st.job.realQuestions);
   return `你是「${st.job.name}」的资深面试官，正在面试一位候选人。请生成「下一道」面试题。

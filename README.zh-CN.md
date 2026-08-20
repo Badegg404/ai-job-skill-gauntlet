@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20通义千问-FF6B6B)](#)
-[![本地运行](https://img.shields.io/badge/隐私-100%25%20本地-2FD6B5)](#)
+[![本地运行](https://img.shields.io/badge/隐私-Key%20本地-2FD6B5)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 [English](./README.md) · **中文**
@@ -42,7 +42,7 @@
 | 💼 **面试考核** | 8 个 AI 岗位任选，**会追问、会降级、会嘲讽、会提前劝退**的仿真面试官 |
 | 🧬 **10 维能力画像** | 雷达图 + 基础水平评估 + 岗位匹配建议 |
 | 🎮 **游戏化成长** | XP / 等级 / 徽章 / 连续学习 streak |
-| 🔒 **100% 本地** | 数据存 `~/.exam-center/`，API Key 只存浏览器、直连 LLM、**不出你的电脑** |
+| 🔒 **本地优先** | 笔记/题库/记录存 `~/.exam-center/`，API Key 不出浏览器；AI 出题/判分/面试时会把资料摘要（概念/章节/代码片段）直连发送给你配置的模型服务商，服务端不存储 |
 
 ---
 
@@ -183,7 +183,8 @@ open dist/AI面试能力评估.app    # macOS
 
 ## 🔒 隐私
 
-- **数据 100% 本地**：笔记、题库、考核记录都存在 `~/.exam-center/`，不上传任何服务器
+- **本地存储**：笔记、题库、考核记录都存在 `~/.exam-center/`，程序本身可完全离线运行
+- **AI 功能会把资料发送给模型服务商**：开启 AI 出题/判分/面试后，浏览器会把资料摘要（概念/章节/代码预览）直连发送给你配置的 LLM 服务商（如 DeepSeek / 百炼）。API Key 不出浏览器，服务端不存储任何资料
 - **API Key 全程不出本机**：浏览器直连 LLM；后端可能从本机环境变量读取 Key 用于自动填入，但绝不上传、不存储到任何地方
 - **单机单用户**：为个人学习设计，非多租户服务
 

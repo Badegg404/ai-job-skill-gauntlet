@@ -138,5 +138,44 @@ class TestEnrichQuiz(unittest.TestCase):
         self.assertEqual(course["quiz"][0]["ability"], "RAG 与知识库")
 
 
+class TestParseRobustness(unittest.TestCase):
+    """D-5/D-6：判断题否定词识别 + 无答案选择题剔除"""
+
+    def _quiz_md(self, body):
+        return "# 课程\n\n## 测验题\n\n" + body
+
+    def test_true_false_negative_前缀(self):
+        """「不对」→ 错（不被「对」子串误判）"""
+        course = parse_note(self._quiz_md("**Q1（判断）** ReAct 循环不需要推理步骤\n\n> 答案：不对\n"), "t.md")
+        tf = [q for q in course["quiz"] if q.get("type") == "true_false"]
+        self.assertEqual(tf[0]["correctAnswer"], "错")
+
+    def test_true_false_negative_没错(self):
+        """「没错」→ 对（双重否定为肯定）"""
+        course = parse_note(self._quiz_md("**Q1（判断）** ReAct 一定需要推理\n\n> 答案：没错\n"), "t.md")
+        tf = [q for q in course["quiz"] if q.get("type") == "true_false"]
+        self.assertEqual(tf[0]["correctAnswer"], "对")
+
+    def test_true_false_normal(self):
+        """正常「对」不受影响"""
+        course = parse_note(self._quiz_md("**Q1（判断）** RAG 先检索再生成\n\n> 答案：对\n"), "t.md")
+        tf = [q for q in course["quiz"] if q.get("type") == "true_false"]
+        self.assertEqual(tf[0]["correctAnswer"], "对")
+
+    def test_choice_without_answer_dropped(self):
+        """无答案选择题 → correctIndex None，enrich_quiz 剔除（不默认第 0 个）"""
+        course = parse_note(self._quiz_md("**Q1（选择）** 以下哪项是 ReAct 的循环步骤？\n\nA. 思考\nB. 行动\nC. 观察\nD. 以上都是\n"), "t.md")
+        cho = [q for q in course["quiz"] if q.get("type") == "choice"]
+        self.assertIsNone(cho[0].get("correctIndex"))
+        enrich_quiz(course)
+        self.assertFalse(any(q.get("type") == "choice" for q in course["quiz"]))
+
+    def test_choice_with_answer_kept(self):
+        """有答案选择题保留"""
+        course = parse_note(self._quiz_md("**Q1（选择）** 以下哪项是 ReAct 的循环步骤？\n\nA. 思考\nB. 行动\nC. 观察\nD. 以上都是\n\n> 答案：D\n"), "t.md")
+        cho = [q for q in course["quiz"] if q.get("type") == "choice"]
+        self.assertEqual(cho[0]["correctIndex"], [3])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

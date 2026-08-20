@@ -645,23 +645,31 @@ def _parse_quiz_item(q, blocks):
             for key in ["A", "B", "C", "D", "E"]:
                 if key in answer_text:
                     idxs.append(key_to_idx[key])
-            item["correctIndex"] = idxs or [0]
+            # D-6 修复：模板未提供答案 → 不设 correctIndex（None），由 enrich_quiz 剔除，不再默认第 0 个选项
+            item["correctIndex"] = idxs or None
         else:
             idxs = []
             for key in ["A", "B", "C", "D", "E"]:
                 if key in answer_text:
                     idxs.append(key_to_idx[key])
-            item["correctIndex"] = [idxs[0]] if idxs else [0]
+            item["correctIndex"] = [idxs[0]] if idxs else None
     elif qtype == "true_false":
         ans_raw = " ".join(ref_answers).strip()
         tf_map = {"对": "对", "正确": "对", "true": "对", "√": "对", "✓": "对",
                   "错": "错", "错误": "错", "false": "错", "×": "错", "✗": "错", "✘": "错"}
-        for k, v in tf_map.items():
-            if k in ans_raw:
-                item["correctAnswer"] = v
-                break
-        if "correctAnswer" not in item:
-            item["correctAnswer"] = "对"
+        # D-5 修复：先识别否定词（不对→错、没错→对、不正确→错），避免「不对」被「对」子串误判
+        neg = re.search(r"(不|没|非)\s*(对|正确|true|错|错误|false|√|✓|✗|✘)", ans_raw, re.I)
+        if neg:
+            w = neg.group(2).lower()
+            pos = "对" if w in ("对", "正确", "true", "√", "✓") else ("错" if w in ("错", "错误", "false", "×", "✗", "✘") else None)
+            item["correctAnswer"] = ("错" if pos == "对" else "对") if pos else "对"
+        else:
+            matched = None
+            for k, v in tf_map.items():
+                if k in ans_raw:
+                    matched = v
+                    break
+            item["correctAnswer"] = matched or "对"
     elif qtype == "fill_blank":
         if ref_answers:
             # 支持 `> 答案：术语 / 同义词1 / 同义词2`

@@ -128,8 +128,9 @@ function normalizeLLMQuestion(q) {
       if (!p.options) p.options = [];
     }
   }
-  // ability 白名单：非当前维度名单归入默认，防 LLM 注入任意字符串
-  if (!ABILITIES.includes(q.ability)) q.ability = "提示词工程";
+  // ability 白名单：非 10 维名单的维度归入「未分类」——D-1 修复：不再全塞进「提示词工程」导致画像系统性失真；
+  // 未分类题在计分时仍正常（correctCount/XP），但不会进入能力画像/雷达/岗位匹配（showResult 按白名单过滤）
+  if (!ABILITIES.includes(q.ability)) q.ability = "未分类";
   if (!q.dimension) q.dimension = inferDimension(q);
   q.interview = !!q.interview;
   if (q.type === "essay" && !q.followUps) q.followUps = [];

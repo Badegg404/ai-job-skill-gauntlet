@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20Qwen-FF6B6B)](#)
-[![Local-first](https://img.shields.io/badge/Privacy-100%25%20Local-2FD6B5)](#)
+[![Local-first](https://img.shields.io/badge/Privacy-Key%20Local-2FD6B5)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 **English** · [中文文档](./README.zh-CN.md)
@@ -48,7 +48,7 @@ This system fixes exactly that: **turn your study materials into questions that 
 | 💼 **Interview** | Pick from 8 AI roles; a simulated interviewer that **probes, downgrades, roasts, and ends the interview early** |
 | 🧬 **10-Dimension Profile** | Radar chart + baseline level + job-match suggestions |
 | 🎮 **Gamified Growth** | XP / levels / badges / streaks |
-| 🔒 **100% Local** | Data lives in `~/.exam-center/`; API key stays in your browser and calls the LLM directly — **never leaves your machine** |
+| 🔒 **Local-first** | Notes, question banks & history live in `~/.exam-center/`; your API key never leaves the browser. AI question generation / grading / interview send **material excerpts** (concepts, chapter summaries, code snippets) directly to the model provider you configure — nothing is stored server-side |
 
 ---
 
@@ -183,7 +183,8 @@ On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek
 
 ## 🔒 Privacy
 
-- **Data is 100% local**: notes, question banks, and exam history live in `~/.exam-center/` — nothing is uploaded
+- **Local storage**: notes, question banks, and exam history live in `~/.exam-center/`; the app itself runs fully offline
+- **AI features send material to your model provider**: when AI question generation / grading / interview are enabled, the browser sends material excerpts (concepts, chapters, code previews) directly to the LLM provider you configure (DeepSeek / Bailian etc.). Your API key never leaves the browser, and nothing is stored server-side
 - **API key never leaves your machine**: the browser calls the LLM directly; the backend may read the key from local environment variables to auto-fill it, but never uploads or stores it anywhere
 - **Single-user by design**: built for personal learning, not multi-tenant
 

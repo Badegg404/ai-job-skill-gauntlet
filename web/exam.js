@@ -568,11 +568,33 @@ async function readLocalLLMEnv() {
 }
 
 function applyLocalLLMEnv(f) {
-  const base = $("#llm-base-input"), key = $("#llm-key-input"), model = $("#llm-model-input");
-  if (base && f.base) base.value = f.base;
-  if (key && f.key) key.value = f.key;
-  if (model && f.model) model.value = f.model;
-  showToast(`🔑 已从 ${f.env} 读取，请点「保存设置」确认生效`);
+  // S-2 加固：服务器默认只返回掩码 Key；用户确认后才带 full=1 读取完整 Key（仅本机浏览器使用）
+  showModal({
+    icon: "🔑",
+    title: "读取本机 LLM Key？",
+    text: `将从本机环境读取「${f.env}」的完整 API Key 并填入浏览器。Key 仅保存在本机浏览器 localStorage，不会上传服务器。`,
+    actions: [
+      { label: "取消", onClick: () => {} },
+      { label: "读取并填入", primary: true, onClick: async () => {
+        try {
+          const res = await fetch("/api/llm-env?full=1");
+          const data = await res.json().catch(() => ({}));
+          const full = ((data && data.found) || []).find((x) => x.env === f.env);
+          const base = $("#llm-base-input"), key = $("#llm-key-input"), model = $("#llm-model-input");
+          if (full && full.key && key) {
+            if (base && full.base) base.value = full.base;
+            key.value = full.key;
+            if (model && full.model) model.value = full.model;
+            showToast(`🔑 已从 ${f.env} 读取，请点「保存设置」确认生效`);
+          } else {
+            showToast("⚠️ 读取失败，请检查环境变量");
+          }
+        } catch (e) {
+          showToast("⚠️ 读取失败：" + (e && e.message ? e.message : e));
+        }
+      } },
+    ],
+  });
 }
 
 function saveNickname() {
@@ -1629,6 +1651,7 @@ async function proceedInterviewAnswer(ans) {
       overall: `这次面试暴露出很严重的基础问题：连续 ${weakCount} 次连最基础的概念都答不上来，「${st.job.name}」的核心知识几乎为零。建议先系统补一遍岗位要求里的核心概念，再回来面试。`,
     };
     setTimeout(() => renderInterviewResult(failedResult), 1600);
+    interviewBusyCount = Math.max(0, interviewBusyCount - 1);   // BUG-1：提前终止也必须解锁，否则二次面试被锁卡死
     return;
   }
 
@@ -1743,36 +1766,41 @@ async function finishInterview() {
 function renderInterviewResult(result) {
   const st = interviewState;
   const totalScore = result && typeof result.totalScore === "number" ? Math.max(0, Math.min(100, Math.round(result.totalScore))) : null;
-  const pct = totalScore !== null ? totalScore : Math.round((state.lastScore || 0));
-  const ok = pct >= 60;
+  // BUG-2 修复：评分失败（totalScore null）时不再回退到上一次考核分数，避免误导「通过」并污染面试记录
+  const scoreFailed = totalScore === null;
+  const pct = scoreFailed ? null : totalScore;
+  const ok = !scoreFailed && pct >= 60;
 
-  // 计入考核历史与能力画像（面试维度得分）
-  state.exams++;
-  state.history.push({ date: new Date().toISOString(), mode: "interview", score: pct, total: 100, pct, abilities: {} });
-  if (pct >= 80) state.bestInterview = Math.max(state.bestInterview, pct);
-  if (!state.modesDone) state.modesDone = [];
-  if (!state.modesDone.includes("interview")) state.modesDone.push("interview");
-  // 能力画像：按面试维度得分累积（BUG-3/6 修复：维度名对齐 ABILITIES 白名单 + 量纲对齐理论考核）
-  if (!state.abilityProfile) state.abilityProfile = {};
-  if (result && result.dimensions && result.dimensions.length) {
-    for (const d of result.dimensions) {
-      const raw = (d.name || "").trim();
-      if (!raw) continue;
-      // BUG-3：维度名必须落在 ABILITIES 10 维白名单内，白名单外的丢弃，避免污染画像/雷达/岗位匹配
-      if (!ABILITIES.includes(raw)) continue;
-      if (!state.abilityProfile[raw]) state.abilityProfile[raw] = { sum: 0, count: 0 };
-      // BUG-6：量纲对齐理论考核（sum 累加得分、count 累加 1，去掉原来的 ×2）
-      state.abilityProfile[raw].sum += (d.score || 0);
-      state.abilityProfile[raw].count += 1;
-      state.abilityProfile[raw].lastAt = Date.now();
+  // 计入考核历史与能力画像（面试维度得分）——评分失败时不入历史/画像/徽章（避免历史分数污染面试记录）
+  if (!scoreFailed) {
+    state.exams++;
+    state.history.push({ date: new Date().toISOString(), mode: "interview", score: pct, total: 100, pct, abilities: {} });
+    if (pct >= 80) state.bestInterview = Math.max(state.bestInterview, pct);
+    if (!state.modesDone) state.modesDone = [];
+    if (!state.modesDone.includes("interview")) state.modesDone.push("interview");
+    // 能力画像：按面试维度得分累积（BUG-3/6 修复：维度名对齐 ABILITIES 白名单 + 量纲对齐理论考核）
+    if (!state.abilityProfile) state.abilityProfile = {};
+    if (result && result.dimensions && result.dimensions.length) {
+      for (const d of result.dimensions) {
+        const raw = (d.name || "").trim();
+        if (!raw) continue;
+        // BUG-3：维度名必须落在 ABILITIES 10 维白名单内，白名单外的丢弃，避免污染画像/雷达/岗位匹配
+        if (!ABILITIES.includes(raw)) continue;
+        if (!state.abilityProfile[raw]) state.abilityProfile[raw] = { sum: 0, count: 0 };
+        // BUG-6：量纲对齐理论考核（sum 累加得分、count 累加 1，去掉原来的 ×2）
+        state.abilityProfile[raw].sum += (d.score || 0);
+        state.abilityProfile[raw].count += 1;
+        state.abilityProfile[raw].lastAt = Date.now();
+      }
     }
   }
-  // 保存完整面试记录（供「面试记录」页面回顾）
+  // 保存完整面试记录（供「面试记录」页面回顾；评分失败也保存并标记 failed）
   if (!state.interviewLogs) state.interviewLogs = [];
   state.interviewLogs.unshift({
     job: st.job.name,
     date: new Date().toISOString(),
     score: pct,
+    failed: scoreFailed,
     dimensions: (result && result.dimensions) || [],
     overall: (result && result.overall) || "",
     qa: st.history.map((h) => ({ q: h.question, a: h.answer, weak: !!h.weak })),
@@ -1794,10 +1822,10 @@ function renderInterviewResult(result) {
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回首页</button>
     <div class="card" style="text-align:center;padding:34px 28px">
-      <div style="font-size:40px;margin-bottom:10px">${ok ? "🎉" : "💪"}</div>
+      <div style="font-size:40px;margin-bottom:10px">${scoreFailed ? "⚠️" : ok ? "🎉" : "💪"}</div>
       <div style="font-size:12px;color:var(--text-2)">${esc(st.job.name)} · 仿真面试结果</div>
-      <div style="font-size:52px;font-weight:900;color:${ok ? "#00e5ff" : "#ffb84d"};margin:8px 0;font-family:var(--cyber)">${pct} 分</div>
-      <div style="font-size:14px;color:${ok ? "#2fd6b5" : "#ff6b6b"};font-weight:700">${ok ? "✅ 通过（≥60）" : "❌ 未通过（<60）"}</div>
+      <div style="font-size:52px;font-weight:900;color:${scoreFailed ? "#ffb84d" : ok ? "#00e5ff" : "#ffb84d"};margin:8px 0;font-family:var(--cyber)">${scoreFailed ? "—" : pct + " 分"}</div>
+      <div style="font-size:14px;color:${scoreFailed ? "#ffb84d" : ok ? "#2fd6b5" : "#ff6b6b"};font-weight:700">${scoreFailed ? "⚠️ 评分失败（网络或 API Key 问题）" : ok ? "✅ 通过（≥60）" : "❌ 未通过（<60）"}</div>
     </div>
     ${dimsHtml ? `<div class="card" style="margin-top:14px"><div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent)">📊 维度得分</div>${dimsHtml}</div>` : ""}
     ${result && result.overall ? `<div class="card" style="margin-top:14px"><div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent)">📝 面试官总评</div><div style="font-size:13.5px;color:var(--text-1);line-height:1.9">${esc(result.overall)}</div></div>` : ""}
@@ -2388,6 +2416,9 @@ function showFillBlankGradeBox(q, userAns) {
   fb.innerHTML = `✍️ <strong>你的答案：</strong>${esc(userAns)}
     <div id="fill-grade-box" style="margin-top:10px"></div>`;
   $(".exam-nav-btns").insertBefore(fb, $(".exam-nav-btns").firstChild);
+  // BUG-3 修复：判分期间禁用提交按钮，防止用户判分中推进下一题
+  const fbSb = $("#submit-btn");
+  if (fbSb) { fbSb.disabled = true; fbSb.textContent = "🤖 判分中…"; }
   llmGradeFillBlank(q, userAns);
 }
 
@@ -2438,9 +2469,12 @@ function finishFillBlankGrade(data, box, q, userAns) {
 }
 
 function applyFillBlankResult(q, userAns, correct) {
-  // 更新 answers 最后一条的 judged
-  const last = answers[answers.length - 1];
+  // BUG-3 修复：按 q 精确查找对应记录（用户在判分中推进下一题时，不再误写最后一条）
+  const last = answers.find((a) => a.q === q) || answers[answers.length - 1];
   if (last) last.judged = correct;
+  // 判分完成：恢复提交按钮为「下一题」
+  const sb = $("#submit-btn");
+  if (sb) { sb.disabled = false; sb.textContent = quizIdx === quiz.length - 1 ? "🏁 查看成绩" : "下一题 →"; }
   const ab = q.ability || "提示词工程";
   if (correct) {
     correctCount++;

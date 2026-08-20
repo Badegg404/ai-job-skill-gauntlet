@@ -66,8 +66,12 @@ class CourseHandler(SimpleHTTPRequestHandler):
     def _is_local_host(self):
         """校验 Host 头是否为本地地址（防 DNS rebinding：恶意域名解析到 127.0.0.1）。"""
         host = (self.headers.get("Host") or "").strip()
-        # 去掉端口和 IPv6 方括号
-        host = host.split(":")[0].strip("[]").lower()
+        # BUG-4 修复：先剥 IPv6 方括号再取主机部分（[::1] / [::1]:8765 / ::1 均应识别为本地）
+        if host.startswith("["):
+            host = host[1:].split("]")[0]
+        else:
+            host = host.split(":")[0]
+        host = host.lower()
         return host in ("127.0.0.1", "localhost", "::1")
 
     def _reject_nonlocal(self):
@@ -133,7 +137,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": True, "uid": get_device_uid()})
             return
         if parsed.path == "/api/llm-env":
-            self._handle_llm_env()
+            self._handle_llm_env(q)
             return
         if parsed.path == "/api/dirs":
             self._handle_dirs(q)
@@ -172,9 +176,12 @@ class CourseHandler(SimpleHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def _read_body(self):
+    def _read_body(self, max_bytes=5 * 1024 * 1024):
+        """S-4 加固：请求体长度上限（默认 5MB），超限返回空体（由调用方按解析失败处理）。"""
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
+            return b""
+        if length > max_bytes:
             return b""
         return self.rfile.read(length)
 
@@ -214,9 +221,18 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 continue
         return exports
 
-    def _handle_llm_env(self):
+    @staticmethod
+    def _mask_key(val):
+        """S-2 加固：Key 掩码显示（sk-***last4），避免 shell 配置里的完整 Key 经页面泄露。"""
+        val = (val or "").strip()
+        if len(val) <= 8:
+            return val[:3] + "***"
+        return val[:3] + "***" + val[-4:]
+
+    def _handle_llm_env(self, q=None):
         """读取本机环境变量 / shell 配置文件里的 LLM API Key（可选功能），供前端「从本机环境读取」填入。
-        仅在本机服务内访问（_reject_nonlocal 已拦），Key 不离开本机。"""
+        仅在本机服务内访问（_reject_nonlocal 已拦），Key 不离开本机。
+        S-2 加固：默认只返回掩码 Key；前端确认后带 full=1 才返回完整 Key。"""
         # 常见 LLM API Key 环境变量 → 推断的 base / 默认模型 / 展示名
         CANDIDATES = [
             ("DASHSCOPE_API_KEY", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-turbo", "阿里云百炼（通义千问）"),
@@ -229,11 +245,12 @@ class CourseHandler(SimpleHTTPRequestHandler):
         # 合并：os.environ（继承）优先，其次 shell 配置文件里的 export
         env_map = dict(os.environ)
         env_map.update(self._read_shell_exports())
+        full = bool(q and ((q.get("full") or [""])[0] == "1"))   # 仅前端确认后才返回完整 Key
         found = []
         for env, base, model, label in CANDIDATES:
             val = (env_map.get(env) or "").strip()
             if val:
-                found.append({"env": env, "key": val, "base": base, "model": model, "label": label})
+                found.append({"env": env, "key": val if full else self._mask_key(val), "base": base, "model": model, "label": label})
         self._send_json({"ok": True, "found": found})
 
     def _require_uid(self, data):
@@ -359,7 +376,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
         """读取该用户课程库中的指定课程文件。"""
         uid = safe_uid((query.get("uid") or [""])[0])
         fname = (query.get("file") or [""])[0]
-        if not uid or not fname or ".." in fname or "/" in fname:
+        # S-3 加固：文件名白名单（slug.json），彻底挡路径穿越（../、绝对路径、\、~）
+        if not uid or not re.fullmatch(r"[A-Za-z0-9_\-]+\.json", fname):
             self._send_json({})
             return
         cf = user_dir(uid) / "courses" / fname
@@ -741,6 +759,17 @@ class CourseHandler(SimpleHTTPRequestHandler):
             lib_file.write_text(json.dumps(main_course, ensure_ascii=False, indent=2), encoding="utf-8")
             rebuild_index(uid)
 
+            # D-3 修复：批量导入也存档原始资料（与单份导入一致），重复/未处理文件跳过
+            processed_names = {f["filename"] for f in dir_data["files"]}
+            archives = []
+            for item in files:
+                if item.get("filename") not in processed_names:
+                    continue
+                try:
+                    archives.append(archive_import(uid, item.get("filename", "note.md"), item.get("md", ""), {"title": item.get("filename", "note.md"), "quizCount": 0}, 0, 0))
+                except Exception:
+                    pass
+
             quiz = main_course.get("quiz", [])
             self._send_json({
                 "ok": True,
@@ -751,6 +780,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 "fileCount": len(dir_data["files"]),
                 "totalQuestions": len(quiz),
                 "course": main_course,
+                "archives": archives,
             })
         except Exception as e:
             import traceback
