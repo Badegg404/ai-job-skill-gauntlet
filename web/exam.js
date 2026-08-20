@@ -1185,7 +1185,7 @@ async function handleImportFileList(mdFiles) {
         let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重；天然避开引擎题/辅助题 id 段
         const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
         genParts.forEach((gp, i) => {
-          const stEl = partsBox ? partsBox.querySelector(".imp-part[data-part=\" + gp.key + \"] .imp-part-state") : null;
+          const stEl = partsBox ? partsBox.querySelector(`.imp-part[data-part="${gp.key}"] .imp-part-state`) : null;
           const r = results[i];
           let added = 0;
           for (const q of r.value) {
@@ -1207,7 +1207,7 @@ async function handleImportFileList(mdFiles) {
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
         const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
         let pracRetries = 0;
-        while (pracRetries < 5 && (countPrac() < 10 || countLlmCode() < 2)) {
+        while (pracRetries < 5 && countPrac() < 10) {
           pracRetries++;
           const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
           if (stElP) stElP.textContent = "⏳ 补充生成（" + pracRetries + "/5）…";
@@ -1230,12 +1230,15 @@ async function handleImportFileList(mdFiles) {
           }
           if (!extraAdded) break;
         }
-        if (countPrac() < 10 || countLlmCode() < 2) {
+        if (countPrac() < 10) {
           clearInterval(pTimer);
-          throw new Error("实战题不足（" + countPrac() + " 道实战，其中写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标");
+          // 数量不足：失败但不删目录（保留后端已解析的资料与文件清单，避免用户资料被静默清空）
+          const err = new Error("实战题仅 " + countPrac() + " 道（不足 10 道，含写代码题 " + countLlmCode() + " 道），LLM 补足后仍未达标——目录已保留，可重新导入或点「🤖 补出题」");
+          err.keepDir = true;
+          throw err;
         }
         const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
-        if (stElP2) stElP2.textContent = "✅ 完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
+        if (stElP) stElP.textContent = "✅ 完成 " + countPrac() + " 道（含写代码 " + countLlmCode() + " 道）";
         // LLM 生成 0 题 = 导入失败（LLM 配置是导入前提：题库必须由 LLM 生成，引擎题无法支撑考核）
         if (!llmMade) {
           clearInterval(pTimer);
@@ -1262,7 +1265,7 @@ async function handleImportFileList(mdFiles) {
         clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
-        if (data.dir && data.dir.id) {
+        if (data.dir && data.dir.id && !e.keepDir) {
           await fetch("/api/dir-delete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1274,7 +1277,7 @@ async function handleImportFileList(mdFiles) {
           ? "无法连接 API 服务（网络错误）"
           : msg;
         status.className = "parse-status err";
-        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。请您检查 API Key / 网络 / API 地址后重试。`;
+        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。请您检查 API Key / 网络 / API 地址后重试。${e.keepDir ? "（目录已保留，未删除）" : ""}`;
       }
     }
 

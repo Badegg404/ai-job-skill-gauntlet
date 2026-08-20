@@ -106,16 +106,16 @@ ${badTxt}` : ""}
 
 ${TEACHING_METHODS}
 
-请生成 10 道代码实战题——必须恰好 10 道：code_choice 代码客观题 8 道 + llm_code 写代码任务题 2 道，不要多也不要少；类型多样化、不要雷同：
+请生成 10 道代码实战题——以代码客观题（code_choice）为主，总量必须 10 道；尽量包含 2 道写代码任务题（llm_code），但 llm_code 数量不作硬性要求（能出几道算几道，不足的用 code_choice 补足 10 道）；类型多样化、不要雷同：
 
 二、实战维度（dimension 填 "practical"）—— 基于课程【真实代码】：
-  A. 必须恰好 8 道代码客观题（type 用 "practical"，practical.compareMode 填 "code_choice"）：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（8 道不要全同一种，5 种类型尽量都覆盖，同一段代码也可以从不同角度出题但要保证不雷同），在以下 5 种中选：
+  A. code_choice 代码客观题（type 用 "practical"，practical.compareMode 填 "code_choice"）为主，共 10 道减去 llm_code 道数（如没出 llm_code 就 10 道全客观）：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/代码片段），类型多样化（不要全同一种，5 种类型尽量都覆盖，同一段代码也可以从不同角度出题但要保证不雷同），在以下 5 种中选：
   - spotlight 代码片段作用题：practical.code 放真实代码片段，highlightLines 标注其中一段的行号，问「标注段的作用/功能是什么」（单选，multi=false）
   - functions 代码功能多选：practical.code 放真实代码，问「这段代码实现的【关键功能】有哪几个」（多选，multi=true）
   - trace 输出预测：practical.code 放真实代码 + 题干给输入，问「运行结果/输出是什么」（单选）
   - bugfix Bug 修复：practical.code 放有缺陷的真实代码，highlightLines 标注问题行，问「正确的修复是哪个」（单选）
   - progression 递进 / compare 对比：当代码文件有多个（如 demo-1.py、demo-2.py 名称有序），用 practical.codeBlocks（[{"file":"demo-1.py","code":"..."},{"file":"demo-2.py","code":"..."}]）出跨文件题——问「相对上一版新增的关键能力 / 两种实现的本质区别与优劣」（单选或 multi=true 多选）
-  B. 必须恰好 2 道写代码任务题（practical.compareMode 填 "llm_code"）：从上面某个代码文件的【实现逻辑】出发，问用户「这块代码该如何写/如何实现」，并在题干中提示参考实现所在文件（如「提示：参考实现可在 {文件名} 中找到」）；task 描述具体编码任务（轻量函数/逻辑题，不要完整大项目），referenceAnswer 给参考实现，scoringPoints 给 2-4 条评分要点。
+  B. 尽量 2 道写代码任务题（practical.compareMode 填 "llm_code"，数量不强制）：从上面某个代码文件的【实现逻辑】出发，问用户「这块代码该如何写/如何实现」，并在题干中提示参考实现所在文件（如「提示：参考实现可在 {文件名} 中找到」）；task 描述具体编码任务（轻量函数/逻辑题，不要完整大项目），referenceAnswer 给参考实现，scoringPoints 给 2-4 条评分要点。
   题干要贴合真实业务场景，不要空泛；code_choice 题正确选项必须对应代码的真实行为，practical.correctIndex 填正确选项下标数组（单选 [n]，多选 [a,b,...]）；llm_code 题不需要 options/correctIndex。
 
 输出 JSON 格式（严格，不要多余文字）：
