@@ -117,29 +117,19 @@ def build_dir_from_files(uid, files, api_key=None):
             main_course.setdefault("quiz", []).append(q)
 
     # 5. 辅助文件生成题目（打 fromFile）
-    # 参考面试题最多 5 道：面试题是综合参考（结合课程主题与真实项目），不逐代码文件堆量；
-    # 超出的面试题丢弃（保留实战题），前几个有代表性的代码文件各出 1 道
+    # 面试题不在此处生成：由 build_comprehensive_interviews 在目录级综合提炼（最多 5 道）
     aux_summary = []
     qid = 3000 + len(main_course.get("quiz", []))
-    MAX_INTERVIEW = 5
-    interview_made = 0
     for filename, content, kind in aux_items:
         aux_qs, material = process_aux_file(filename, content, qid)
         qid += len(aux_qs)
-        kept = []
         for q in aux_qs:
-            if q.get("interview"):
-                if interview_made >= MAX_INTERVIEW:
-                    continue      # 面试题已够 5 道，丢弃本次（实战题仍保留）
-                interview_made += 1
-            kept.append(q)
-        for q in kept:
             q["fromFile"] = filename
             main_course.setdefault("quiz", []).append(q)
         main_course.setdefault("materials", []).append(material)
         aux_summary.append({
             "filename": filename, "kind": material["type"],
-            "lines": material["lines"], "questions": len(kept),
+            "lines": material["lines"], "questions": len(aux_qs),
         })
 
     # 6. 整体去重 + 补全字段
@@ -414,7 +404,7 @@ def build_comprehensive_interviews(course, max_count=5):
     out = []
     for i, q in enumerate(templates[:max_count]):
         out.append({
-            "id": 4000 + i, "type": "essay",   # 综合面试题固定段（引擎 2000+ / aux 3000+ / 综合面试 4000+）
+            "id": 4000 + i, "type": "essay",   # 综合面试题固定段 4000+（引擎/aux 题经 2000+ 段统一重排，避开冲突）
             "question": q,
             "answer": "参考：结合本目录资料《" + title + "》中相关概念与代码组织回答。",
             "explanation": "综合参考面试题：由整个目录资料（概念/章节/代码）提炼，面试考核时作为该岗位的参考弹药。",
