@@ -1998,8 +1998,8 @@ function showExamLoading(mode) {
     },
   };
   api.log("读取本地题库目录");
-    api.log("准备连接 LLM 组卷");
-    api.setStatus("INITIALIZING ENGINE + LLM AUGMENTATION");
+  api.log("准备连接 LLM 组卷");
+  api.setStatus("INITIALIZING ENGINE + LLM AUGMENTATION");
   api.setProgress(6);
   // 记录开始时间，用于保证动画至少展示一小段（本地加载太快会一闪而过）
   const startTime = Date.now();
