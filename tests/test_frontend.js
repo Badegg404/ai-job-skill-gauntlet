@@ -345,6 +345,16 @@ test("全部完成后引导条显示完成态", () => {
   assert.ok(html.includes("gb-all-done"), "应显示全部完成态");
 });
 
+console.log("\n== 退出入口 ==");
+test("考核界面与面试界面提供退出按钮", () => {
+  assert.strictEqual(typeof raw("quitExam"), "function", "应有 quitExam 函数");
+  assert.strictEqual(typeof raw("quitInterview"), "function", "应有 quitInterview 函数");
+  const q = raw("renderQuestion.toString()");
+  assert.ok(q.includes('onclick="quitExam()"'), "答题界面应含退出考核按钮");
+  const iv = raw("renderInterviewChat.toString()");
+  assert.ok(iv.includes('onclick="quitInterview()"'), "面试界面应含退出按钮");
+});
+
 console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
 test("技术徽章覆盖全部 10 个能力维度", () => {
   const tech = raw("BADGES.filter(b => b.id.startsWith('ab_'))");

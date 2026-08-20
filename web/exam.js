@@ -1321,7 +1321,10 @@ function renderInterviewChat() {
           <div class="iv-name">${esc(st.job.name)} · 面试官</div>
           <div class="iv-meta">考察维度：${esc(st.dims.join(" / "))}</div>
         </div>
-        <div class="iv-status"><span class="dot"></span>面试中</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="iv-status"><span class="dot"></span>面试中</div>
+          <button class="exam-btn ghost" style="padding:4px 10px;font-size:11px" onclick="quitInterview()">✕ 退出</button>
+        </div>
       </div>
       <div class="interview-body" id="interview-body">
         ${renderInterviewMessages()}
@@ -1982,7 +1985,10 @@ function renderQuestion() {
     document.getElementById("main")?.scrollTo?.(0, 0);
   }, `
     <div class="exam-progress-bar"><div class="exam-progress-fill" style="width:${progress}%"></div></div>
-    <div class="exam-progress-stat">第 ${quizIdx + 1} / ${total} 题 · 已答对 ${correctCount} 题${combo >= 2 ? ` · 🔥 连击 ×${combo}` : ""}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="exam-progress-stat" style="margin:0">第 ${quizIdx + 1} / ${total} 题 · 已答对 ${correctCount} 题${combo >= 2 ? ` · 🔥 连击 ×${combo}` : ""}</div>
+      <button class="exam-btn ghost" style="padding:5px 14px;font-size:12px" onclick="quitExam()">✕ 退出考核</button>
+    </div>
     <div class="exam-question-head">
       <div class="exam-q-meta">${TYPE_LABEL[q.type] || q.type} · 难度 ${diffStars}</div>
       <span class="exam-q-type ${typeCls}">${TYPE_LABEL[q.type] || q.type}</span>
@@ -3732,6 +3738,33 @@ function showBadgeCelebration(badge) {
   };
   mask.addEventListener("click", close);
   setTimeout(close, 3600);
+}
+
+/* 退出当前考核（确认后放弃进度回首页） */
+function quitExam() {
+  const done = answers.length, total = quiz.length;
+  showModal({
+    icon: "⚠️",
+    title: "退出考核？",
+    text: `已答 ${done}/${total} 题。退出后本次考核进度将不保存，确定退出吗？`,
+    actions: [
+      { label: "继续答题", onClick: () => {} },
+      { label: "确认退出", primary: true, onClick: () => { examSeq++; quiz = []; quizIdx = 0; answers = []; goHome(); } },
+    ],
+  });
+}
+
+/* 退出面试（确认后放弃记录回首页） */
+function quitInterview() {
+  showModal({
+    icon: "⚠️",
+    title: "退出面试？",
+    text: "退出后本次面试记录将不保存，确定退出吗？",
+    actions: [
+      { label: "继续面试", onClick: () => {} },
+      { label: "确认退出", primary: true, onClick: () => { interviewBusyCount = 0; interviewState = null; goHome(); } },
+    ],
+  });
 }
 
 /* ---------------- 初始化 ---------------- */
