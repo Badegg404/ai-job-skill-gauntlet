@@ -234,6 +234,16 @@ test("buildExamPrompt 实战模式支持代码客观题 + 写代码题", () => {
   assert.ok(p.includes("llm_code"), "应保留写代码题");
   assert.ok(p.includes("codeBlocks"), "应支持多文件题");
 });
+test("面试追问 prompt 要求从回答延伸 + 具体详细", () => {
+  const st = { job: { name: "Agent 工程师", followUpHints: ["失败重试", "幂等"] }, currentFollows: 1, history: [] };
+  const p = raw("buildInterviewFollowPrompt(" + JSON.stringify(st) + ", { type: 'essay' }, '你的问题', '我的回答', ['技巧1'])");
+  assert.ok(p.includes("回答分析"), "应有回答分析环节");
+  assert.ok(p.includes("可深挖点"), "应要求找出可深挖点");
+  assert.ok(p.includes("禁止从岗位预置追问方向"), "应禁止机械挑选预置方向");
+  assert.ok(p.includes("至少 2 句"), "应要求追问具体详细");
+  assert.ok(p.includes("正例"), "应含正例约束");
+  assert.ok(p.includes("反例"), "应含反例约束");
+});
 
 console.log("\n== 面试上下文随机采样 ==");
 test("资料多时每次采样不同（随机性）", () => {

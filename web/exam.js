@@ -1607,7 +1607,7 @@ async function proceedInterviewAnswer(ans) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 60000);
       try {
-        const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: followPrompt }], temperature: 0.5, max_tokens: 500 };
+        const body = { model, messages: [{ role: "system", content: buildInterviewerSystem(st.job) }, { role: "user", content: followPrompt }], temperature: 0.6, max_tokens: 700 };
         if (withFormat) body.response_format = { type: "json_object" };
         return await fetch(base + "/chat/completions", {
           method: "POST",
