@@ -3467,10 +3467,10 @@ function __guideJump(id) {
 /* ---------- 高亮引导 Tour ---------- */
 const TOUR_STEPS = [
   { icon: "🤖", title: "欢迎来到 AI 岗位能力试炼", text: "这是一套本地 AI 岗位面试能力评估系统：导入学习资料 → LLM 自动出题 → 理论 / 实战 / 面试三模式考核 → 10 维能力画像 + 岗位匹配。下面带你走一遍完整流程。", sel: null },
-  { icon: "⚙️", title: "第 1 步 · 配置 LLM", text: "出题、语义判分、岗位匹配都由 LLM 驱动。请先在「设置」中填入 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口），Key 仅保存在本机浏览器，不会上传服务器。", sel: 'button[onclick="showSettings()"]', jump: showSettings, jumpLabel: "现在去配置" },
-  { icon: "📥", title: "第 2 步 · 导入学习资料", text: "点击「导入资料」，拖入笔记、代码、文档或整个文件夹，系统自动解析并生成考核题（选择 / 判断 / 填空 + 实战场景题）。", sel: 'button[onclick="showImportPanel()"]', jump: showImportPanel, jumpLabel: "现在去导入" },
-  { icon: "🎯", title: "第 3 步 · 开始考核", text: "三种模式任选：📘 理论考核（客观题）、🛠️ 实战考核（场景决策 + 代码对比）、💼 面试考核（AI 面试官按岗位追问）。建议先完成理论 + 实战，再挑战面试。", sel: ".mode-grid", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去看看" },
-  { icon: "🧬", title: "第 4 步 · 查看能力画像", text: "完成考核后回到首页，可查看 10 维能力雷达图、岗位匹配度、等级称号，并导出评估报告。", sel: 'button[onclick="showAssessment()"]', jump: showAssessment, jumpLabel: "去看画像" },
+  { icon: "⚙️", title: "第 1 步 · 配置 LLM", text: "出题、语义判分、岗位匹配都由 LLM 驱动。请先在「设置」中填入 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口），Key 仅保存在本机浏览器，不会上传服务器。", sel: 'button[onclick="showSettings()"]' },
+  { icon: "📥", title: "第 2 步 · 导入学习资料", text: "点击「导入资料」，拖入笔记、代码、文档或整个文件夹，系统自动解析并生成考核题（选择 / 判断 / 填空 + 实战场景题）。", sel: 'button[onclick="showImportPanel()"]' },
+  { icon: "🎯", title: "第 3 步 · 开始考核", text: "三种模式任选：📘 理论考核（客观题）、🛠️ 实战考核（场景决策 + 代码对比）、💼 面试考核（AI 面试官按岗位追问）。建议先完成理论 + 实战，再挑战面试。", sel: ".mode-grid" },
+  { icon: "🧬", title: "第 4 步 · 查看能力画像", text: "完成考核后回到首页，可查看 10 维能力雷达图、岗位匹配度、等级称号，并导出评估报告。", sel: 'button[onclick="showAssessment()"]' },
   { icon: "🚀", title: "全部完成 🎉", text: "首页顶部常驻「快速开始」引导条会实时标记你的进度并推荐下一步；随时可点「新手引导演示」重看本教程。祝你试炼顺利！", sel: null },
 ];
 
@@ -3517,7 +3517,6 @@ function showTourStep(i) {
     <div class="tb-text">${esc(s.text)}</div>
     <div class="tb-actions">
       ${i > 0 ? `<button class="exam-btn ghost" onclick="__tourPrev()">← 上一步</button>` : ""}
-      ${s.jump ? `<button class="exam-btn primary" onclick="__tourJump()">${esc(s.jumpLabel)} →</button>` : ""}
       ${i < TOUR_STEPS.length - 1 ? `<button class="exam-btn" onclick="__tourNext()">下一步 →</button>` : `<button class="exam-btn primary" onclick="__tourDone()">开始体验</button>`}
       <button class="exam-btn ghost" style="border-color:var(--border)" onclick="__tourSkip()">跳过</button>
     </div>`;
@@ -3564,11 +3563,6 @@ function positionTour(el) {
 
 function __tourNext() { showTourStep(tourStep + 1); }
 function __tourPrev() { showTourStep(tourStep - 1); }
-function __tourJump() {
-  const s = TOUR_STEPS[tourStep];
-  closeGuideTour();
-  if (s && s.jump) s.jump();
-}
 function __tourSkip() { closeGuideTour(); }
 function __tourDone() { closeGuideTour(); }
 function closeGuideTour() {

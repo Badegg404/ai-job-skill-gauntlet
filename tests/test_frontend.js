@@ -169,6 +169,11 @@ test("buildExamPrompt 理论模式含 JSON schema", () => {
 });
 
 console.log("\n== 新人引导步骤判断 ==");
+test("TOUR_STEPS 不包含跳转按钮字段（引导只走下一步）", () => {
+  const t = raw("JSON.stringify(TOUR_STEPS)");
+  assert.ok(!t.includes('"jump"'), "TOUR 步骤不应含 jump 字段");
+  assert.ok(!t.includes("__tourJump"), "不应引用已删除的跳转函数");
+});
 test("guideStepDone('llm') 未配置 → false", () => {
   assert.strictEqual(raw("guideStepDone('llm')"), false);
 });
