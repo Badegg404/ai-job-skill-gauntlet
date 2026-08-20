@@ -1547,7 +1547,12 @@ function startJobInterview(jobId) {
   const extra = (state.jobExtraQuestions || {})[baseJob.name] || [];
   const job = { ...baseJob, sampleQuestions: [...(baseJob.sampleQuestions || []), ...extra] };
   // 兜底题池：每场面试打乱一次顺序（+ 随机起点），避免多次面试兜底题固定顺序不变
-  const fallbackPool = [...job.sampleQuestions].sort(() => Math.random() - 0.5);
+  // D-9 对齐：统一 Fisher-Yates 均匀洗牌（与 buildInterviewQuestionPrompt 一致，避免非均匀 sort）
+  const fallbackPool = [...job.sampleQuestions];
+  for (let i = fallbackPool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [fallbackPool[i], fallbackPool[j]] = [fallbackPool[j], fallbackPool[i]];
+  }
   const fallbackStart = Math.floor(Math.random() * Math.max(1, fallbackPool.length));
   const ctx = buildInterviewContext();
   const dims = Object.keys(job.dimensions).slice(0, 4);
@@ -1904,14 +1909,26 @@ const InterviewGraph = {
     record: async (st, ans) => {
       const q = st.current || {};
       const t = String(ans).trim();
-      const weakAnswer = (t.length <= 10) && /(不知道|不会|不清楚|不懂|没学过|不了解|不确定|也不会|也不知道|没思路|想不出|我想想|让我想想|再想想|还没想好|这题不会|不会做)/.test(t);
-      st.history.push({ question: q.question || "", type: q.type || "essay", answer: ans, dimension: q.dimension || "", weak: weakAnswer });
+      const isFollowup = (st.currentFollows || 0) > 0;
+      // 弱回答：命中「不知道/不会/拖延词」且没有实质猜测（去掉长度阈值，避免误判长句；带猜测的排除）
+      const weakAnswer = /(不知道|不会|不清楚|不懂|没学过|不了解|不确定|也没思路|想不出|这题不会|不会做|我想想|让我想想|再想想|还没想好)/.test(t)
+        && !/我觉得|我认为|可能是|应该是|大概是|不太确定但|猜/.test(t);
+      st.history.push({
+        question: q.question || "", type: q.type || "essay", answer: ans,
+        dimension: q.dimension || "", weak: weakAnswer, isFollowup,
+        followupText: isFollowup ? (st.asked[st.asked.length - 1] || "") : "",
+      });
       return { next: "route" };
     },
-    // 路由节点：集中条件判断（连续弱回答 → 提前终止）
+    // 路由节点：集中条件判断（连续原题 weak → 提前终止）
     route: (st) => {
-      const weakCount = st.history.filter((h) => h.weak).length;
-      if (weakCount >= 4) return { next: "fail" };
+      // 连续原题首答 weak ≥3 才终止（一个知识点不会不终止；与 fail 文案「连续」语义一致）
+      let consecutiveWeak = 0;
+      for (const h of st.history) {
+        if (!h.isFollowup) consecutiveWeak = h.weak ? consecutiveWeak + 1 : 0;
+        if (consecutiveWeak >= 3) break;
+      }
+      if (consecutiveWeak >= 3) return { next: "fail" };
       return { next: "judge" };
     },
     // 评估节点：LLM 判断回答 → followup / advance / judged（统一 llmJSON 约束）
@@ -1943,10 +1960,12 @@ const InterviewGraph = {
       }
       return { next: "decide" };
     },
-    // 决策节点：是否追问（前端强制追问：不足 3 次或弱回答）
+    // 决策节点：是否追问（追问预算随轮次递减，避免耐力赛）
     decide: (st) => {
-      const shouldFollow = (st.currentFollows || 0) < 3 || st._judged === "weak";
-      if (shouldFollow && (st.currentFollows || 0) < 4) return { next: "follow" };
+      // 追问预算随轮次递减：1-2 题追 3、3-4 题追 2、之后 1（避免 8 轮 × 3 追问拖成耐力赛）
+      const followBudget = Math.max(1, 3 - Math.floor(st.round / 2));
+      const shouldFollow = (st.currentFollows || 0) < followBudget || st._judged === "weak";
+      if (shouldFollow && (st.currentFollows || 0) < followBudget + 1) return { next: "follow" };
       return { next: "advance" };
     },
     // 追问节点：显示追问（LLM 追问或兜底）
@@ -2038,6 +2057,9 @@ function appendInterviewOptions(options) {
     </div>`;
   const slot = $("#iv-typing-slot");
   if (slot) body.insertBefore(wrap, slot); else body.appendChild(wrap);
+  // 选择题出现时置灰输入框：明确「点上方选项作答」
+  const inp = $("#interview-input");
+  if (inp) { inp.disabled = true; inp.placeholder = "点击上方选项作答"; }
   scrollInterviewToBottom();
 }
 
@@ -2047,6 +2069,14 @@ function chooseInterviewOption(i) {
   const opts = (st.current && st.current.options) || [];
   const label = opts[i] || (String.fromCharCode(65 + i));
   appendInterviewMessage("candidate", String.fromCharCode(65 + i) + ". " + label.replace(/^[A-D][.、)]\s*/, ""));
+  // 选择题程序判对错：立即反馈（correctIndex 比对，不依赖 LLM）
+  const ci = Array.isArray(st.current.correctIndex) ? st.current.correctIndex[0] : st.current.correctIndex;
+  if (typeof ci === "number" && st.current.options && st.current.options.length) {
+    appendInterviewMessage("interviewer", i === ci ? "✅ 选对了，我们深入一下。" : "❌ 不完全对，我们换个角度看看。", "判分");
+  }
+  // 恢复输入框（下一题若是选择题会再次置灰）
+  const inp = $("#interview-input");
+  if (inp) { inp.disabled = false; inp.placeholder = "输入你的回答…"; }
   proceedInterviewAnswer(label);
 }
 
@@ -2084,7 +2114,10 @@ async function finishInterview() {
       <div id="interview-score" style="font-size:13px;color:var(--text-2);margin-top:12px">正在评估你的 ${st.history.length} 轮表现…</div>
     </div>`);
   try {
-    const historyTxt = st.history.map((h, i) => `${i + 1}. [${h.dimension}] Q: ${h.question}\n   A: ${h.answer.slice(0, 400)}${h.weak ? "（⚠️ 直接答「不知道/不会」，未作答，应严格扣分）" : ""}`).join("\n\n");
+    const historyTxt = st.history.map((h, i) => {
+      const label = h.isFollowup ? `Q(追问): ${(h.followupText || "").slice(0, 120)}` : `Q: ${h.question}`;
+      return `${i + 1}. [${h.dimension}] ${label}\n   A: ${h.answer.slice(0, 400)}${h.weak ? "（⚠️ 直接答「不知道/不会」，未作答，应严格扣分）" : ""}`;
+    }).join("\n\n");
     const scorePrompt = buildInterviewScorePrompt(st, historyTxt);
     // 评分统一走 llmJSON 约束（解析失败自动反馈重出，最多 3 次）
     const scoreResult = await llmJSON({
@@ -3825,10 +3858,19 @@ function showInterviewHistory() {
           <div class="eri-q" style="margin:0">💼 ${esc(log.job)}</div>
           <div style="font-size:11px;color:var(--text-2);margin-top:3px">${(log.date || "").slice(0, 16).replace("T", " ")} · ${log.qa ? log.qa.length : 0} 轮问答</div>
         </div>
-        <div style="font-size:26px;font-weight:800;color:${log.score >= 60 ? "#00e5ff" : "#ff6b6b"}">${log.score} 分</div>
+        <div style="font-size:26px;font-weight:800;color:${log.failed ? "#ffb84d" : log.score >= 60 ? "#00e5ff" : "#ff6b6b"}">${log.failed ? "评分失败" : log.score + " 分"}</div>
       </div>
       ${log.dimensions && log.dimensions.length ? `<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">${log.dimensions.map((d) => `<div style="font-size:12px;color:var(--text-1);line-height:1.6">· ${esc(d.name)} <span style="font-weight:700;color:${d.score >= 60 ? "#2fd6b5" : "#ffb84d"}">${d.score} 分</span>${d.comment ? ` — ${esc(d.comment)}` : ""}</div>`).join("")}</div>` : ""}
       ${log.overall ? `<div style="font-size:12.5px;color:var(--text-2);margin-top:8px;line-height:1.7;border-top:1px solid var(--border);padding-top:8px">📝 ${esc(log.overall)}</div>` : ""}
+      ${log.qa && log.qa.length ? `
+      <details style="margin-top:10px"><summary style="font-size:12px;color:var(--accent);cursor:pointer">📖 展开完整问答（${log.qa.length} 轮）</summary>
+      <div style="margin-top:8px;font-size:12px;line-height:1.8;color:var(--text-1)">
+        ${log.qa.map((qa, qi) => `
+        <div style="padding:8px 0;border-bottom:1px dashed var(--border)">
+          <div style="color:#ffb84d">Q${qi + 1}. ${esc(qa.q)}</div>
+          <div style="color:var(--text-2);margin-top:3px">A. ${esc(qa.a)}${qa.weak ? ` <span style="color:#ff6b6b">（弱回答）</span>` : ""}</div>
+        </div>`).join("")}
+      </div></details>` : ""}
     </div>`).join("") || "<div class='empty'>还没有面试记录，去完成一次面试考核吧！</div>";
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
