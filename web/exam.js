@@ -1212,6 +1212,7 @@ async function llmExamQuestions(courses, mode, count = 4) {
 /* 核心：批量导入多份 .md */
 // 理论缺失量对齐 4 的倍数（题型 N/2+N/4+N/4 要求 N 为 4 的倍数才自洽）——模块级函数，导入与补出题共用，测试锁死不变量
 function alignTheoryCount(missing) { return Math.max(Math.ceil(missing / 4) * 4, 4); }
+let importBusy = false;   // 导入防重入锁：导入中再次触发导入直接提示，避免并发竞态
 
 async function handleImportFileList(mdFiles) {
   if (!mdFiles.length) return;
@@ -1228,6 +1229,12 @@ async function handleImportFileList(mdFiles) {
     });
     return;
   }
+  // 防重入：导入进行中再次触发（如连点导入按钮）→ 提示并忽略，避免两个导入流程并发覆盖状态/挂库/写盘
+  if (importBusy) {
+    showToast("⏳ 正在导入中，请等待当前导入完成");
+    return;
+  }
+  importBusy = true;
   const status = $("#import-status");
   status.className = "parse-status loading";
   setImportProgress(3, "🚀", "准备导入", `${mdFiles.length} 份资料`);
@@ -1459,7 +1466,9 @@ async function handleImportFileList(mdFiles) {
     status.insertAdjacentHTML("beforeend", `<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap"><button class="exam-btn primary" onclick="showLibrary()">🗂️ 查看资料目录</button><button class="exam-btn ghost" onclick="showImportPanel()">📥 继续导入资料</button></div>`);
     // 导入成功后自动进入目录列表，优先查看刚导入的资料（而非停留在导入界面）
     if (data.dir) setTimeout(() => showLibrary(), 3500);
+    importBusy = false;
   } catch (e) {
+    importBusy = false;
     status.className = "parse-status err";
     status.textContent = `❌ ${e.message}`;
   }
