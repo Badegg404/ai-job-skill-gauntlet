@@ -10,6 +10,7 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20Qwen-FF6B6B)](#)
 [![Local-first](https://img.shields.io/badge/Privacy-Key%20Local-2FD6B5)](#)
+[![Version](https://img.shields.io/badge/Version-2.0-FFB84D)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 **English** · [中文文档](./README.zh-CN.md)
@@ -17,6 +18,13 @@
 </div>
 
 > **In one line**: Import your study materials, then run the gauntlet of a simulated interviewer that probes, roasts, and even kicks you out — walk away with a 10-dimension skill radar + job-match report + gamified growth.
+
+> 🆕 **v2.0 — Question-Bank & LLM Exam Composition overhaul**
+> - **Per-chapter question banks**: every imported directory owns its bank; chapter exams draw from their chapter, comprehensive exams aggregate all chapters (theory 16 / practical 10, 2× the chapter counts).
+> - **LLM exam composition**: the LLM picks questions from the full bank with a scope-aware prompt (chapter: focus this chapter; comprehensive: cross-chapter variety + difficulty ladder); adaptive rule-based picking is the fallback.
+> - **Parallel import**: theory (16) + practical (10) are generated in two concurrent requests with per-batch status cards and cross-batch dedup; any failed batch rolls the whole import back with an explicit reason.
+> - **Practical questions**: code-choice objective tasks (spotlight / functions / trace / bugfix / progression) grounded in the real code from your materials; interview reference questions are now a curated 5 per directory, synthesized from the whole directory.
+> - Import failures (no LLM key, generation errors) are blocked or rolled back with a clear "import failed, reason: …" message — no more silent half-imports.
 
 <div align="center">
 

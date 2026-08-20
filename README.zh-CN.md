@@ -10,6 +10,7 @@
 [![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20通义千问-FF6B6B)](#)
 [![本地运行](https://img.shields.io/badge/隐私-Key%20本地-2FD6B5)](#)
+[![版本](https://img.shields.io/badge/版本-2.0-FFB84D)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 [English](./README.md) · **中文**
@@ -17,6 +18,13 @@
 </div>
 
 > **一句话**：导入你的学习资料，闯过 AI 面试官的能力试炼——10 个 AI 岗位维度，一层层追问，要么被问穿，要么证明你够格，最后得到一张 10 维能力雷达图 + 岗位匹配报告 + 游戏化成长等级。
+
+> 🆕 **v2.0 大版本 · 题库与 LLM 组卷重构**
+> - **按章节目录存题库**：每次导入的题目归入对应章节题库；章节考核抽本章题目，综合考核聚合全部章节（理论 16 / 实战 10，为章节的 2 倍）。
+> - **LLM 组卷**：LLM 从全题库挑题组卷，提示词区分场景（章节：聚焦本章知识点；综合：跨章节覆盖 + 难度阶梯）；程序自适应抽题兜底。
+> - **导入并行生成**：理论（16）+ 实战（10）两个请求并发生成，各自状态卡实时显示；任一失败整体回滚并明确报原因。
+> - **实战题为代码客观题**（spotlight / functions / trace / bugfix / progression，引用资料真实代码）；面试参考题每目录精炼 5 道、综合整个目录生成。
+> - 未配 LLM 或生成失败都会被拦截/回滚，提示「导入失败，原因是：…」——不再静默产出残缺题库。
 
 ---
 
