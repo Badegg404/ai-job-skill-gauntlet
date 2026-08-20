@@ -297,6 +297,49 @@ function flaggedQuestionTxt() {
     .join("\n") || "";
 }
 
+/* LLM 动态挑选组卷：把候选题摘要（类型/维度/难度）发给 LLM，按「维度多样 + 难度适配 + 不雷同」挑 count 道。
+ * 失败/返回不合法时返回 null，调用方回退 adaptivePick 程序抽题。 */
+async function llmPickQuestions(pool, mode, count, scope) {
+  // scope: "chapter"（章节考核，从本章题库挑、聚焦本章）| "cross"（综合考核，从全题库挑、跨章节覆盖）
+  if (!LLM_KEY || !pool || pool.length < count) return null;
+  const NL = String.fromCharCode(10);
+  const brief = pool.slice(0, 60).map((q, i) =>
+    i + "｜[" + q.type + "] " + String(q.question || "").slice(0, 60) + "（维度:" + (q.ability || "?") + " 难度:" + (q.difficulty || 2) + "）"
+  ).join(NL);
+  const modeLabel = mode === "theory" ? "理论" : "实战";
+  const goal = scope === "chapter"
+    ? "这是一场【章节考核】：从本章节题库中挑选 " + count + " 道" + modeLabel + "题组卷。要求：聚焦本章节核心知识点、题目与本章资料强相关、难度适中为主、题型适度多样、题目之间不要雷同。"
+    : "这是一场【综合考核】：从整个题库（跨章节/跨目录）中挑选 " + count + " 道" + modeLabel + "题组卷。要求：跨章节覆盖、维度尽量多样不扎堆、难度有阶梯（基础到进阶）、题目之间不要雷同、优先选质量高有区分度、贴合真实业务的题。";
+  const prompt = "你是出题组长。" + goal + NL +
+    "只输出 JSON：{'picks': [编号数组]}，编号取自上面列表行首数字。" + NL + "候选题：" + NL + brief;
+  try {
+    let base = String(LLM_BASE || "https://api.deepseek.com");
+    while (base.endsWith("/")) base = base.slice(0, -1);
+    const res = await fetch(base + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
+      body: JSON.stringify({
+        model: LLM_MODEL || "deepseek-chat",
+        messages: [{ role: "system", content: "你只输出 JSON，不输出任何其他文字。" }, { role: "user", content: prompt }],
+        temperature: 0.6, max_tokens: 300, response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) return null;
+    const content = (await res.json()).choices[0].message.content;
+    let parsed = null;
+    try { parsed = JSON.parse(content); } catch (e) {
+      const a = content.indexOf("{"), b = content.lastIndexOf("}");
+      if (a >= 0 && b > a) try { parsed = JSON.parse(content.slice(a, b + 1)); } catch (e2) {}
+    }
+    const picks = Array.isArray(parsed && parsed.picks)
+      ? parsed.picks.filter((i) => typeof i === "number" && Number.isInteger(i) && i >= 0 && i < pool.length)
+      : [];
+    const uniq = Array.from(new Set(picks)).slice(0, count);
+    if (uniq.length < 2) return null;
+    return uniq.map((i) => pool[i]);
+  } catch (e) { return null; }
+}
+
 /* 自适应抽题：薄弱维度加权 + 按历史水平调整难度 */
 function adaptivePick(pool, limit) {
   if (!pool.length) return [];
@@ -1066,14 +1109,16 @@ async function handleImportFileList(mdFiles) {
         if (pctEl) pctEl.textContent = impPct + "%";
       }, 500);
       try {
-        const llmQ = await browserLLMGenerate(data.course, payload);
-        clearInterval(pTimer);
-        if (llmQ && llmQ.length) {
-          llmMade = llmQ.length;
-          const existingIds = new Set((data.course.quiz || []).map((q) => q.id));
-          let nid = Math.max(...(data.course.quiz || []).map((q) => q.id), 9000) + 1;
+        // 多轮生成（每轮 18 道，全部挂进本目录题库，去重累积）——按章节目录存储题库
+        const existingIds = new Set((data.course.quiz || []).map((q) => q.id));
+        let nid = Math.max(...(data.course.quiz || []).map((q) => q.id), 9000) + 1;
+        for (let rnd = 0; rnd < 2; rnd++) {
+          const llmQ = await browserLLMGenerate(data.course, payload);
+          if (!llmQ || !llmQ.length) continue;
+          const seenTxt = new Set((data.course.quiz || []).map((q) => (q.question || "") + "|" + q.type));
           for (const q of llmQ) {
             if (q.id !== undefined && existingIds.has(q.id)) continue;
+            if (seenTxt.has((q.question || "") + "|" + q.type)) continue;   // 与已挂题重复则跳过
             q.id = nid++;
             q.source = "llm";
             if (!q.dimension) q.dimension = inferDimension(q);
@@ -1081,26 +1126,29 @@ async function handleImportFileList(mdFiles) {
             if (q.type === "essay" && !q.followUps) q.followUps = [];
             normalizeLLMQuestion(q);
             data.course.quiz.push(q);
-          }
-          await fetch("/api/course-save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uid: UID, course: data.course, dirId: data.dir ? data.dir.id : null }),
-          }).catch(() => {});
-          // 额外：从这份资料提炼「岗位通用面试题」，并入该岗位的面试参考弹药
-          const jobQ = await generateJobQuestions(data.course);
-          if (jobQ && jobQ.questions.length) {
-            if (!state.jobExtraQuestions) state.jobExtraQuestions = {};
-            const bucket = state.jobExtraQuestions[jobQ.jobName] || [];
-            const seen = new Set(bucket);
-            let addedJobQ = 0;
-            for (const q of jobQ.questions) {
-              if (q && !seen.has(q)) { bucket.push(q); seen.add(q); addedJobQ++; }
-            }
-            state.jobExtraQuestions[jobQ.jobName] = bucket;
-            if (addedJobQ) saveState();
+            seenTxt.add((q.question || "") + "|" + q.type);
+            llmMade++;
           }
         }
+        await fetch("/api/course-save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: UID, course: data.course, dirId: data.dir ? data.dir.id : null }),
+        }).catch(() => {});
+        // 额外：从这份资料提炼「岗位通用面试题」，并入该岗位的面试参考弹药
+        const jobQ = await generateJobQuestions(data.course);
+        if (jobQ && jobQ.questions.length) {
+          if (!state.jobExtraQuestions) state.jobExtraQuestions = {};
+          const bucket = state.jobExtraQuestions[jobQ.jobName] || [];
+          const seen = new Set(bucket);
+          let addedJobQ = 0;
+          for (const q of jobQ.questions) {
+            if (q && !seen.has(q)) { bucket.push(q); seen.add(q); addedJobQ++; }
+          }
+          state.jobExtraQuestions[jobQ.jobName] = bucket;
+          if (addedJobQ) saveState();
+        }
+        clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
         status.className = "parse-status err";
@@ -1967,8 +2015,8 @@ function startExam(mode) {
         }
       }
     }
-    filtered = adaptivePick(filtered, mode === "theory" ? 15 : 8);
-    loading.log(`自适应抽题 → ${filtered.length} 题（薄弱维度加权 + 难度浮动）`);
+    filtered = adaptivePick(filtered, mode === "theory" ? 30 : 16);
+    loading.log("自适应抽题 → " + filtered.length + " 题（全题库聚合 + 薄弱维度加权 + 难度浮动）");
     loading.setProgress(60);
     if (!filtered.length) {
       showToast("⚠️ 暂无题目，请先导入资料");
@@ -1983,9 +2031,13 @@ function startExam(mode) {
       try {
         const dyn = await llmExamQuestions(courses, mode, 8);
         if (seq !== examSeq) return;
-        filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
+        filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 30 : 16);
       } catch (e) { /* 忽略，继续用题库题 */ }
     }
+    // LLM 从题库/候选池动态挑选组卷（维度多样 + 难度适配 + 不雷同；失败回退程序抽题）
+    loading.log("LLM 从题库动态挑选组卷");
+    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 30 : 16, "cross");
+    if (llmPicked && llmPicked.length) filtered = llmPicked;
     // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
     filtered = injectReviewQuestions(filtered, mode);
     // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
@@ -3386,7 +3438,7 @@ async function startDirExam(dirId, mode) {
     filtered = dirQuiz.filter((q) => (mode === "theory" ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type) : q.type === "practical"));
   }
   filtered = adaptivePick(filtered, mode === "theory" ? 15 : 8);
-  loading.log(`自适应抽题 → ${filtered.length} 题`);
+  loading.log("自适应抽题 → " + filtered.length + " 题（本目录题库 + 薄弱维度加权）");
   loading.setProgress(60);
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
   // LLM 动态出题混入（失败不影响题库题）
@@ -3400,6 +3452,10 @@ async function startDirExam(dirId, mode) {
       filtered = adaptivePick(filtered.concat(dyn), mode === "theory" ? 15 : 8);
     } catch (e) { /* 忽略 */ }
   }
+  // LLM 从题库/候选池动态挑选组卷（失败回退程序抽题）
+  loading.log("LLM 从题库动态挑选组卷");
+  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 15 : 8, "chapter");
+  if (llmPicked && llmPicked.length) filtered = llmPicked;
   // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
   filtered = injectReviewQuestions(filtered, mode);
   // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）

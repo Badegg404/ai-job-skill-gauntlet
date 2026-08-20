@@ -407,6 +407,22 @@ test("出题 prompt 含被反馈题目避开段", () => {
   assert.ok(p.includes("禁止生成相同或高度雷同"), "应禁止雷同");
 });
 
+console.log("\n== 题库组卷（章节/综合区分 + 数量翻倍） ==");
+test("llmPickQuestions 提示词区分章节与综合考核", () => {
+  const src = raw("llmPickQuestions.toString()");
+  assert.ok(src.includes("章节考核"), "章节场景提示词");
+  assert.ok(src.includes("综合考核"), "综合场景提示词");
+  assert.ok(src.includes("scope"), "应有场景参数");
+});
+test("综合考核题量翻倍于章节（30:16 vs 15:8）", () => {
+  const se = raw("startExam.toString()");
+  const sd = raw("startDirExam.toString()");
+  assert.ok(se.includes("30 : 16"), "综合考核理论30/实战16");
+  assert.ok(sd.includes("15 : 8"), "章节考核理论15/实战8");
+  assert.ok(se.includes('"cross"'), "综合考核传 cross 场景");
+  assert.ok(sd.includes('"chapter"'), "章节考核传 chapter 场景");
+});
+
 console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
 test("技术徽章覆盖全部 10 个能力维度", () => {
   const tech = raw("BADGES.filter(b => b.id.startsWith('ab_'))");
