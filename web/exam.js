@@ -1207,11 +1207,12 @@ async function handleImportFileList(mdFiles) {
         const countPrac = () => (data.course.quiz || []).filter((q) => q.type === "practical").length;
         const countLlmCode = () => (data.course.quiz || []).filter((q) => q.type === "practical" && (q.practical || {}).compareMode === "llm_code").length;
         let pracRetries = 0;
-        while (pracRetries < 3 && (countPrac() < 10 || countLlmCode() < 2)) {
+        while (pracRetries < 5 && (countPrac() < 10 || countLlmCode() < 2)) {
           pracRetries++;
           const stElP = partsBox ? partsBox.querySelector(".imp-part[data-part=\"practical\"] .imp-part-state") : null;
-          if (stElP) stElP.textContent = "⏳ 补充生成（" + pracRetries + "/3）…";
-          const extra = await browserLLMGenerate(data.course, "practical");
+          if (stElP) stElP.textContent = "⏳ 补充生成（" + pracRetries + "/5）…";
+          let extra = null;
+          try { extra = await browserLLMGenerate(data.course, "practical"); } catch (e) { await new Promise((r) => setTimeout(r, 800)); continue; }
           if (!extra || !extra.length) break;
           let extraAdded = 0;
           for (const q of extra) {
