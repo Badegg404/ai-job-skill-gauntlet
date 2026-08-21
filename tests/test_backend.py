@@ -10,6 +10,7 @@ test_backend.py — 后端纯函数测试集
 
 运行：python3 tests/test_backend.py
 """
+import json
 import re
 import sys
 import unittest
@@ -194,6 +195,58 @@ class TestTableParsing(unittest.TestCase):
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]["名称"], "a")
 
+
+
+class TestLogSystem(unittest.TestCase):
+    """日志系统：JSONL 行格式 / 级别映射 / 轮转 handler"""
+
+    def test_log_json_line_format(self):
+        """log_json 组装标准 JSONL 行：at/level/tag/msg/payload"""
+        import io
+        import logging
+
+        buf = io.StringIO()
+        logger = logging.getLogger("test.logjson")
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+        logger.addHandler(logging.StreamHandler(buf))
+        import server
+        server.log_json(logger, "info", "test.tag", "消息", {"k": 1})
+        row = json.loads(buf.getvalue().strip())
+        self.assertIn("at", row)
+        self.assertEqual(row["level"], "info")
+        self.assertEqual(row["tag"], "test.tag")
+        self.assertEqual(row["msg"], "消息")
+        self.assertEqual(row["payload"], {"k": 1})
+
+    def test_log_json_error_level_maps_to_error(self):
+        """error 级别落到 logger.error（诊断中心按级别过滤依赖此映射）"""
+        import io
+        import logging
+
+        buf = io.StringIO()
+        logger = logging.getLogger("test.logerr")
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+        logger.addHandler(logging.StreamHandler(buf))
+        import server
+        server.log_json(logger, "error", "e.tag", "boom", {"x": 2})
+        row = json.loads(buf.getvalue().strip())
+        self.assertEqual(row["level"], "error")
+
+    def test_make_json_logger_rotating_handler(self):
+        """_make_json_logger 创建 RotatingFileHandler 且写入即落盘"""
+        import tempfile
+
+        from logging.handlers import RotatingFileHandler
+        import server
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "logs" / "a.log"
+            lg = server._make_json_logger("test.rot", p)
+            self.assertTrue(any(isinstance(h, RotatingFileHandler) for h in lg.handlers))
+            lg.info('{"k": 1}')
+            self.assertTrue(p.exists())
+            self.assertIn("k", p.read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -23,15 +23,18 @@ server.py — 知识考核系统本地服务器（多用户版）
   python3 server.py [port]
 """
 import json
+import logging
 import os
 import re
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 from collections import Counter
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -54,6 +57,63 @@ from pipeline import (  # noqa: E402
     build_dir_from_files, build_course_from_md, course_summary,
     enrich_quiz, assign_chapter_refs, process_aux_file,
 )
+
+# ===== 日志系统（stdlib logging，零依赖） =====
+# app.log:   全局系统日志（启动/端口/请求/未捕获异常），DATA_DIR/logs/app.log
+# activity.log: 每用户活动日志（前端上报 + 后端业务事件），users/{uid}/logs/activity.log
+# 均为 JSONL（每行一个 JSON），RotatingFileHandler 单文件 2MB × 5 份自动轮转
+_LOG_MAX_BYTES = 2 * 1024 * 1024
+_LOG_BACKUPS = 5
+
+def _make_json_logger(name, path):
+    """构造写 JSONL 行的文件 logger（RotatingFileHandler 轮转），失败时降级为 NullHandler。"""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(str(path), maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUPS, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(fh)
+    except Exception:
+        logger.addHandler(logging.NullHandler())
+    return logger
+
+
+APP_LOGGER = _make_json_logger("app", DATA_DIR / "logs" / "app.log")
+
+_activity_loggers = {}
+_activity_lock = threading.Lock()
+
+
+def activity_logger(uid):
+    """按用户取活动日志 logger（进程内缓存，避免每行重建 handler）。"""
+    with _activity_lock:
+        lg = _activity_loggers.get(uid)
+        if lg is None:
+            lg = _make_json_logger("activity." + uid, user_dir(uid) / "logs" / "activity.log")
+            _activity_loggers[uid] = lg
+        return lg
+
+
+def log_json(logger, level, tag, msg="", payload=None, **extra):
+    """统一 JSONL 行组装：{at, level, tag, msg, payload, **extra}。level: info|warn|error。"""
+    row = {
+        "at": datetime.now().isoformat(),
+        "level": level,
+        "tag": tag,
+        "msg": msg or "",
+        "payload": payload or {},
+    }
+    row.update(extra)
+    text = json.dumps(row, ensure_ascii=False)
+    if level == "error":
+        logger.error(text)
+    elif level == "warn":
+        logger.warning(text)
+    else:
+        logger.info(text)
+
 
 # 静态资源目录：PyInstaller 打包后从 _MEIPASS 读取；源码运行时用本地 web/
 class CourseHandler(SimpleHTTPRequestHandler):
@@ -110,11 +170,42 @@ class CourseHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     # ---- 业务接口 ----
+    # 统一包装：任何 handler 抛出的异常都带 traceback 落盘（不静默），并记录请求耗时
+    def _log_request(self, method, path, dur_ms, err=None):
+        """请求级日志：慢请求(>2s)记 warn，其余记 info；异常由调用方单独记 error。"""
+        if err:
+            log_json(APP_LOGGER, "error", "http.uncaught", "未捕获异常: " + path,
+                     {"method": method, "path": path, "durMs": dur_ms, "err": str(err)})
+            return
+        if dur_ms > 2000:
+            log_json(APP_LOGGER, "warn", "http.slow", "慢请求", {"method": method, "path": path, "durMs": dur_ms})
+        else:
+            log_json(APP_LOGGER, "info", "http." + method.lower(), "", {"path": path, "durMs": dur_ms})
+
     def do_GET(self):
+        t0 = time.time()
+        try:
+            self._dispatch_get()
+        except Exception as e:
+            import traceback
+            log_json(APP_LOGGER, "error", "http.uncaught", "GET 未捕获异常: " + self.path,
+                     {"method": "GET", "path": self.path, "err": str(e),
+                      "traceback": traceback.format_exc()[-1500:]})
+            try:
+                self._send_json({"error": "服务器内部错误"}, 500)
+            except Exception:
+                pass
+        finally:
+            self._log_request("GET", self.path, round((time.time() - t0) * 1000))
+
+    def _dispatch_get(self):
         if self._reject_nonlocal():
             return
         parsed = urlparse(self.path)
         q = parse_qs(parsed.query)
+        if parsed.path == "/api/logs":
+            self._handle_logs(q)
+            return
         if parsed.path == "/api/profile":
             self._handle_profile(q)
             return
@@ -152,6 +243,22 @@ class CourseHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        t0 = time.time()
+        try:
+            self._dispatch_post()
+        except Exception as e:
+            import traceback
+            log_json(APP_LOGGER, "error", "http.uncaught", "POST 未捕获异常: " + self.path,
+                     {"method": "POST", "path": self.path, "err": str(e),
+                      "traceback": traceback.format_exc()[-1500:]})
+            try:
+                self._send_json({"error": "服务器内部错误"}, 500)
+            except Exception:
+                pass
+        finally:
+            self._log_request("POST", self.path, round((time.time() - t0) * 1000))
+
+    def _dispatch_post(self):
         if self._reject_nonlocal():
             return
         parsed = urlparse(self.path)
@@ -171,6 +278,10 @@ class CourseHandler(SimpleHTTPRequestHandler):
             self._handle_dir_file_add()
         elif parsed.path == "/api/import-debug":
             self._handle_import_debug()
+        elif parsed.path == "/api/log":
+            self._handle_log()
+        elif parsed.path == "/api/logs-clear":
+            self._handle_logs_clear()
         elif parsed.path == "/api/dir-file-delete":
             self._handle_dir_file_delete()
         elif parsed.path == "/api/reset-all":
@@ -352,8 +463,9 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 data = json.loads(idx.read_text(encoding="utf-8"))
                 self._send_json(data)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                log_json(APP_LOGGER, "warn", "dir.index-corrupt", "课程库索引读取失败，回退空列表",
+                         {"uid": uid, "path": str(idx), "err": str(e)})
         self._send_json({"courses": [], "total": 0})
 
     def _handle_user_course(self, query):
@@ -369,8 +481,9 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 course = json.loads(cf.read_text(encoding="utf-8"))
                 self._send_json({"course": course})
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                log_json(APP_LOGGER, "warn", "course.read-corrupt", "course.json 读取失败，回退空课程",
+                         {"uid": uid, "path": str(cf), "err": str(e)})
         empty = {"title": "未导入课程", "quiz": [], "chapters": [], "concepts": [], "learningObjectives": [], "difficulties": [], "tasks": []}
         self._send_json({"course": empty})
 
@@ -469,8 +582,9 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 try:
                     old_mirror.rename(new_mirror)
                     rebuild_index(uid)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_json(APP_LOGGER, "warn", "dir.rename-mirror-fail", "目录改名后课程镜像同步失败",
+                             {"dirId": dir_id, "old": str(old_mirror), "new": str(new_mirror), "err": str(e)})
         self._send_json({"ok": True, "title": dd["title"]})
 
     def _handle_import_debug(self):
@@ -493,9 +607,89 @@ class CourseHandler(SimpleHTTPRequestHandler):
                     "tag": data.get("tag"),
                     "payload": data.get("payload"),
                 }, ensure_ascii=False) + chr(10))
-        except Exception:
-            pass
+        except Exception as e:
+            log_json(APP_LOGGER, "error", "log.write-fail", "import-debug.log 写盘失败", {"err": str(e)})
         self._send_json({"ok": True})
+
+    def _handle_log(self):
+        """前端日志批量上报：写用户 activity.log（JSONL），逐行校验类型。"""
+        try:
+            data = json.loads(self._read_body().decode("utf-8"))
+        except Exception:
+            self._send_json({"error": "请求体必须是 JSON"}, 400)
+            return
+        uid = str(data.get("uid") or "").strip()
+        if not safe_uid(uid):
+            self._send_json({"error": "非法 uid"}, 400)
+            return
+        rows = data.get("rows")
+        if not isinstance(rows, list):
+            self._send_json({"error": "rows 必须是数组"}, 400)
+            return
+        lg = activity_logger(uid)
+        n = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                lg.info(json.dumps(row, ensure_ascii=False))
+                n += 1
+            except Exception:
+                continue
+        self._send_json({"ok": True, "n": n})
+
+    def _handle_logs(self, q):
+        """诊断中心只读接口：file=activity|app，limit=N 行（默认 300，上限 2000）。"""
+        uid = str((q.get("uid") or [""])[0]).strip()
+        if not safe_uid(uid):
+            self._send_json({"error": "非法 uid"}, 400)
+            return
+        file = (q.get("file") or ["activity"])[0]
+        if file not in ("activity", "app"):
+            self._send_json({"error": "file 只能是 activity 或 app"}, 400)
+            return
+        try:
+            limit = int((q.get("limit") or ["300"])[0])
+        except (TypeError, ValueError):
+            limit = 300
+        limit = max(1, min(limit, 2000))
+        p = (DATA_DIR / "logs" / "app.log") if file == "app" else (user_dir(uid) / "logs" / "activity.log")
+        lines = []
+        total = 0
+        if p.exists():
+            try:
+                raw = p.read_text(encoding="utf-8", errors="replace").splitlines()
+                total = len(raw)
+                lines = raw[-limit:]
+            except Exception as e:
+                log_json(APP_LOGGER, "error", "log.read-fail", "日志读取失败", {"path": str(p), "err": str(e)})
+        self._send_json({"ok": True, "file": file, "lines": lines, "total": total, "path": str(p)})
+
+    def _handle_logs_clear(self):
+        """清空日志（仅用户手动触发，诊断中心按钮）。"""
+        try:
+            data = json.loads(self._read_body().decode("utf-8"))
+        except Exception:
+            self._send_json({"error": "请求体必须是 JSON"}, 400)
+            return
+        uid = str(data.get("uid") or "").strip()
+        if not safe_uid(uid):
+            self._send_json({"error": "非法 uid"}, 400)
+            return
+        file = data.get("file") or "activity"
+        if file not in ("activity", "app"):
+            self._send_json({"error": "file 只能是 activity 或 app"}, 400)
+            return
+        p = (DATA_DIR / "logs" / "app.log") if file == "app" else (user_dir(uid) / "logs" / "activity.log")
+        cleared = False
+        if p.exists():
+            try:
+                p.unlink()
+                cleared = True
+            except Exception as e:
+                log_json(APP_LOGGER, "error", "log.clear-fail", "日志清空失败", {"path": str(p), "err": str(e)})
+        log_json(activity_logger(uid), "info", "log.cleared", "日志已清空", {"file": file})
+        self._send_json({"ok": True, "cleared": cleared})
 
 
     def _handle_dir_delete(self):
@@ -519,8 +713,9 @@ class CourseHandler(SimpleHTTPRequestHandler):
             if mirror.exists():
                 try:
                     mirror.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_json(APP_LOGGER, "warn", "dir.delete-mirror-fail", "删除目录时课程镜像删除失败",
+                             {"dirId": dir_id, "mirror": str(mirror), "err": str(e)})
             rebuild_index(uid)
         f = user_dir(uid) / "dirs" / f"{dir_id}.json"
         if f.exists():
@@ -539,6 +734,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
         if not uid:
             return
         d = user_dir(uid)
+        clear_fail = 0
         # 删除当前课程 + 档案
         for name in ("course.json", "profile.json"):
             f = d / name
@@ -546,7 +742,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 try:
                     f.unlink()
                 except Exception:
-                    pass
+                    clear_fail += 1
         # 清空课程库、导入存档、资料目录
         for sub in ("courses", "imports", "dirs"):
             sd = d / sub
@@ -556,7 +752,11 @@ class CourseHandler(SimpleHTTPRequestHandler):
                         try:
                             f.unlink()
                         except Exception:
-                            pass
+                            clear_fail += 1
+        if clear_fail:
+            log_json(APP_LOGGER, "warn", "profile.reset-partial", "重置数据时部分文件删除失败",
+                     {"uid": uid, "failed": clear_fail})
+        log_json(activity_logger(uid), "info", "profile.reset", "用户重置了全部数据", {"resetDir": str(d)})
         self._send_json({"ok": True, "reset": str(d)})
 
     def _handle_dir_file_delete(self):
@@ -791,8 +991,9 @@ class CourseHandler(SimpleHTTPRequestHandler):
                     continue
                 try:
                     archives.append(archive_import(uid, item.get("filename", "note.md"), item.get("md", ""), {"title": item.get("filename", "note.md"), "quizCount": 0}, 0, 0))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_json(APP_LOGGER, "warn", "import.archive-fail", "批量导入资料存档失败",
+                             {"uid": uid, "filename": item.get("filename", ""), "err": str(e)})
 
             quiz = main_course.get("quiz", [])
             self._send_json({
@@ -839,6 +1040,10 @@ def main():
     try:
         USERS_DIR.mkdir(parents=True, exist_ok=True)
         _startup_log(f"[start] frozen={getattr(sys, 'frozen', False)} meipass={getattr(sys, '_MEIPASS', None)} web={WEB_DIR} users={USERS_DIR}")
+        log_json(APP_LOGGER, "info", "app.start", "服务启动", {
+            "frozen": getattr(sys, "frozen", False),
+            "web": str(WEB_DIR), "users": str(USERS_DIR),
+        })
     except Exception as e:
         _startup_log(f"[startup-error] {e}")
         raise
@@ -854,10 +1059,12 @@ def main():
             continue
     if server is None:
         _startup_log("[error] 端口均被占用")
+        log_json(APP_LOGGER, "error", "app.start-fail", "端口均被占用，无法启动", {"port": port})
         print("❌ 无法启动：端口均被占用")
         sys.exit(1)
 
     _startup_log(f"[listening] http://127.0.0.1:{port}/exam.html")
+    log_json(APP_LOGGER, "info", "app.listen", "服务已监听", {"url": f"http://127.0.0.1:{port}/exam.html"})
 
     url = f"http://127.0.0.1:{port}/exam.html"
     print("🌐 AI 岗位能力试炼 · AI Job Skill Gauntlet 已启动")

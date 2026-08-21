@@ -541,6 +541,7 @@ async function goHome() {
       <button class="exam-btn ghost" onclick="showHistory()">📈 学习历史</button>
       <button class="exam-btn ghost" onclick="showInterviewHistory()">💼 面试记录</button>
       <button class="exam-btn ghost" onclick="showWrongBook()">📕 错题本</button>
+      <button class="exam-btn ghost" onclick="showDiagnostics()">🔍 诊断日志</button>
     </div>`);
   updateGamestat();   // C1：回到首页时刷新顶栏状态
 }
@@ -549,6 +550,7 @@ function saveLLMSettings() {
   const k = $("#llm-key-input"), b = $("#llm-base-input"), m = $("#llm-model-input");
   if (!k || !b || !m) return;
   setLLMConfig(k.value, b.value, m.value);
+  Logger.info("settings.save", "LLM 设置已保存", { hasKey: !!k.value, base: b.value || "(默认)", model: m.value || "deepseek-chat" });
   // 保存后重渲染设置页，顶部摘要显示已保存的模型名 + 地址
   showSettings();
   showToast(LLM_KEY ? `🤖 已保存：${LLM_MODEL || "deepseek-chat"}` : "⚠️ 已清除 LLM 配置（需配置后才能考核）");
@@ -691,6 +693,7 @@ function testLLMConnection() {
   const model = ($("#llm-model-input") || {}).value || LLM_MODEL;
   if (!key) { showToast("⚠️ 请先填写 API Key"); return; }
   const url = (base || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
+  Logger.info("settings.test-llm", "测试 LLM 连接", { base: base || "(默认)", model: model || "deepseek-chat" });
   showToast("🔌 正在测试连接…");
   fetch(url, {
     method: "POST",
@@ -719,13 +722,15 @@ function testLLMConnection() {
         errMsg = txt || (r.status + " " + r.statusText);
       }
     }
-    if (ok) { showToast("✅ 连接成功，API 可用"); return; }
+    if (ok) { Logger.info("settings.test-llm-ok", "LLM 连接成功"); showToast("✅ 连接成功，API 可用"); return; }
+    Logger.error("settings.test-llm-fail", "LLM 连接失败: " + errMsg.slice(0, 150), { status: r.status });
     showToast("❌ 连接失败：" + errMsg.slice(0, 150));
-  }).catch((e) => showToast("❌ 网络错误：" + e.message));
+  }).catch((e) => { Logger.error("settings.test-llm-fail", "LLM 连接网络错误: " + e.message); showToast("❌ 网络错误：" + e.message); });
 }
 
 async function resetAllData() {
   if (!confirm("确定要彻底重置所有数据吗？将清空：考核记录、徽章、错题本、资料目录、课程库、昵称，以及 LLM 配置。此操作不可撤销。")) return;
+  Logger.warn("profile.reset", "用户请求重置全部数据");
   // 1. 清空服务器端数据（当前课程、课程库、资料目录、档案、导入存档）
   try {
     await fetch("./api/reset-all", {
@@ -896,14 +901,8 @@ async function handleImportFolder(files) {
 }
 
 async function reportDebug(tag, payload) {
-  // 导入诊断：失败详情上报服务端落盘（~/.exam-center/users/{uid}/import-debug.log），供排查
-  try {
-    await fetch("/api/import-debug", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: UID || "", tag, payload }),
-    }).catch(() => {});
-  } catch (e) {}
+  // 统一日志上报：批量走 Logger → /api/log → 用户 activity.log（旧 tag 与调用点全部兼容）
+  Logger.info(tag, "", payload);
 }
 
 
@@ -1233,6 +1232,8 @@ async function handleImportFileList(mdFiles) {
     return;
   }
   importBusy = true;
+  Logger.begin("imp");   // 本次导入流程的 sessionId（整条链可聚合）
+  Logger.info("import.start", "开始导入资料", { files: mdFiles.length });
   const status = $("#import-status");
   status.className = "parse-status loading";
   setImportProgress(3, "🚀", "准备导入", `${mdFiles.length} 份资料`);
@@ -1410,7 +1411,7 @@ async function handleImportFileList(mdFiles) {
         clearInterval(pTimer);
       } catch (e) {
         clearInterval(pTimer);
-        reportDebug("import-fail", { msg: String((e && e.message) || e) });
+        Logger.error("import.fail", "导入失败: " + String((e && e.message) || e), { msg: String((e && e.message) || e) });
         // 失败不再自动删除目录：保留后端已解析的资料与文件清单，用户可重试、补出题或手动删除
         const msg = String((e && e.message) || e);
         const reason = /failed to fetch|fetch failed|network|net::/i.test(msg)
@@ -1466,7 +1467,16 @@ async function handleImportFileList(mdFiles) {
     showToast(data.dir ? `📥 已导入「${data.dir.title}」 · +${gain} XP` : "⚠️ 资料重复，已跳过");
     status.insertAdjacentHTML("beforeend", `<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap"><button class="exam-btn primary" onclick="showLibrary()">🗂️ 查看资料目录</button><button class="exam-btn ghost" onclick="showImportPanel()">📥 继续导入资料</button></div>`);
     // 导入成功后自动进入目录列表，优先查看刚导入的资料（而非停留在导入界面）
-    if (data.dir) setTimeout(() => showLibrary(), 3500);
+    if (data.dir) {
+      const qDone = data.course?.quiz || [];
+      Logger.info("import.done", "导入完成", {
+        dirTitle: data.dir.title, total: qDone.length,
+        theory: qDone.filter((x) => (x.dimension || inferDimension(x)) === "theory").length,
+        practical: qDone.filter((x) => (x.dimension || inferDimension(x)) === "practical").length,
+        files: fileCount, dup: dupCount, warn: !!(theoryWarn || pracWarn),
+      });
+    }
+    setTimeout(() => showLibrary(), 3500);
     importBusy = false;
   } catch (e) {
     importBusy = false;
@@ -1560,6 +1570,8 @@ function startJobInterview(jobId) {
   const ctx = buildInterviewContext();
   const dims = Object.keys(job.dimensions).slice(0, 4);
   const maxRounds = interviewRoundCount(ctx);
+  Logger.begin("iv");   // 面试流程 sessionId（ask/judge/score 整条链聚合）
+  Logger.info("interview.start", "开始岗位面试", { job: baseJob.name, maxRounds, dims, extraCount: extra.length });
   interviewState = {
     job, dims, ctx,
     fallbackPool, fallbackStart,
@@ -2156,8 +2168,10 @@ async function finishInterview() {
       temperature: 0.3,
       part: "interview-score",
     });
+    Logger.info("interview.score", "面试评分完成", { rounds: st.history.length, totalScore: scoreResult && scoreResult.totalScore });
     renderInterviewResult(scoreResult);
   } catch (e) {
+    Logger.error("interview.score-fail", "面试评分失败: " + String((e && e.message) || e), { rounds: st.history.length });
     // 评分失败兜底：给一个带总评的结果，避免空结果页（点评/总评全部丢失）
     renderInterviewResult({
       totalScore: null,
@@ -2338,6 +2352,8 @@ function startExam(mode) {
   }
   examMode = mode;
   isCrossExam = true;   // 综合考核 = 跨目录
+  Logger.begin("exam");
+  Logger.info("exam.start", "开始综合考核", { mode });
   const seq = ++examSeq;   // A1：竞态守卫，旧请求返回不覆盖新试卷
   const loading = showExamLoading(mode);
   loadAllDirCourses().then(async (courses) => {
@@ -2600,6 +2616,7 @@ function submitAnswer() {
     return;
   }
   answers.push({ q, userAns, judged });
+  Logger.info("exam.submit", "", { type: q.type, judged: judged === null ? "llm" : (judged ? "ok" : "wrong"), dimension: q.dimension || "" });
   // 记录考过的题（回顾题机制）
   if (judged !== null) recordAsked(q, judged === false);
   // 能力计分
@@ -3099,6 +3116,7 @@ function checkLevelUp() {
 /* ---------------- 结果页 ---------------- */
 function showResult() {
   state.exams++;
+  Logger.info("exam.result", "考核完成", { mode: examMode, total: quiz.length, correct: correctCount, pct: quiz.length ? Math.round((correctCount / quiz.length) * 100) : 0 });
   // 记录本次考核前的境界（用于结束后检测境界提升）
   beforeRankIdx = currentLevelIndex();
   const totalQ = quiz.length;
@@ -3498,6 +3516,8 @@ async function reGenerateQuestions(dirId) {
     });
     return;
   }
+  Logger.begin("regen");
+  Logger.info("import.regen", "开始补出题", { dirId });
   try {
     const res = await fetch(`./api/dir?uid=${encodeURIComponent(UID)}&id=${encodeURIComponent(dirId)}`, { cache: "no-store" });
     if (!res.ok) throw new Error("读取目录失败");
@@ -3554,6 +3574,7 @@ async function reGenerateQuestions(dirId) {
     }
     const added = quiz.length - before;
     if (!added) {
+      Logger.warn("import.regen-empty", "补出题未新增题目", { dirId });
       showToast("⚠️ 未新增题目（可能已存在或 LLM 未返回有效题）");
       return;
     }
@@ -3562,9 +3583,11 @@ async function reGenerateQuestions(dirId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ uid: UID, course, dirId }),
     });
+    Logger.info("import.regen-done", "补出题完成", { dirId, added, theory: countTheory(), practical: countPrac() });
     showToast(`✅ 已补出 ${added} 道（理论 ${countTheory()} · 实战 ${countPrac()}）`);
     showLibrary();
   } catch (e) {
+    Logger.error("import.regen-fail", "补出题失败: " + e.message, { dirId });
     showToast(`⚠️ 补出题失败：${e.message}`);
   }
 }
@@ -3697,6 +3720,7 @@ async function handleDirFileAdd(fileList, dirId) {
     if (md.trim()) payload.push({ filename: relPath, md, kind: fileKind(relPath) });
   }
   if (!payload.length) { showToast("⚠️ 没有可读取的文件"); return; }
+  Logger.info("dir.file-add", "追加文件", { dirId, files: payload.map((p) => p.filename) });
   showToast("⏳ 正在追加文件…");
   const res = await fetch("/api/dir-file-add", {
     method: "POST",
@@ -3715,6 +3739,7 @@ async function handleDirFileAdd(fileList, dirId) {
     }
     showDirDetail(dirId);
   } else {
+    Logger.error("dir.file-add-fail", "追加文件失败: " + (data.error || ""), { dirId });
     showToast("❌ 追加失败：" + (data.error || ""));
   }
 }
@@ -3750,8 +3775,8 @@ async function renameDir(dirId, oldTitle) {
     });
     const data = await res.json();
     box.closest(".modal-mask").remove();
-    if (data.ok) { showToast(`✅ 已改名「${title}」`); showLibrary(); }
-    else showToast("❌ 改名失败：" + (data.error || ""));
+    if (data.ok) { Logger.info("dir.rename", "目录改名", { dirId, title }); showToast(`✅ 已改名「${title}」`); showLibrary(); }
+    else { Logger.error("dir.rename-fail", "目录改名失败: " + (data.error || ""), { dirId }); showToast("❌ 改名失败：" + (data.error || "")); }
   };
   box.appendChild(saveBtn);
   inp.focus();
@@ -3771,8 +3796,8 @@ async function deleteDir(dirId) {
           body: JSON.stringify({ uid: UID, id: dirId }),
         });
         const data = await res.json();
-        if (data.ok) { showToast("✅ 目录已删除"); showLibrary(); }
-        else showToast("❌ 删除失败：" + (data.error || ""));
+        if (data.ok) { Logger.warn("dir.delete", "目录已删除", { dirId }); showToast("✅ 目录已删除"); showLibrary(); }
+        else { Logger.error("dir.delete-fail", "目录删除失败: " + (data.error || ""), { dirId }); showToast("❌ 删除失败：" + (data.error || "")); }
       } },
     ],
   });
@@ -3792,8 +3817,8 @@ async function deleteDirFile(dirId, filename) {
           body: JSON.stringify({ uid: UID, id: dirId, filename }),
         });
         const data = await res.json();
-        if (data.ok) { showToast(`✅ 已删除，移除 ${data.removedQuestions} 题`); showDirDetail(dirId); }
-        else showToast("❌ 删除失败：" + (data.error || ""));
+        if (data.ok) { Logger.warn("dir.file-delete", "删除目录文件", { dirId, filename, removed: data.removedQuestions }); showToast(`✅ 已删除，移除 ${data.removedQuestions} 题`); showDirDetail(dirId); }
+        else { Logger.error("dir.file-delete-fail", "删除文件失败: " + (data.error || ""), { dirId, filename }); showToast("❌ 删除失败：" + (data.error || "")); }
       } },
     ],
   });
@@ -4310,7 +4335,7 @@ function quitExam() {
     text: `已答 ${done}/${total} 题。退出后本次考核进度将不保存，确定退出吗？`,
     actions: [
       { label: "继续答题", onClick: () => {} },
-      { label: "确认退出", primary: true, onClick: () => { examSeq++; quiz = []; quizIdx = 0; answers = []; goHome(); } },
+      { label: "确认退出", primary: true, onClick: () => { Logger.warn("exam.quit", "用户中途退出考核", { mode: examMode, answered: answers.length }); examSeq++; quiz = []; quizIdx = 0; answers = []; goHome(); } },
     ],
   });
 }
@@ -4323,9 +4348,125 @@ function quitInterview() {
     text: "退出后本次面试记录将不保存，确定退出吗？",
     actions: [
       { label: "继续面试", onClick: () => {} },
-      { label: "确认退出", primary: true, onClick: () => { interviewBusyCount = 0; interviewState = null; goHome(); } },
+      { label: "确认退出", primary: true, onClick: () => { Logger.warn("interview.quit", "用户中途退出面试", { job: interviewState && interviewState.job && interviewState.job.name }); interviewBusyCount = 0; interviewState = null; goHome(); } },
     ],
   });
+}
+
+/* ---------------- 诊断中心（日志查看/过滤/导出/清空） ---------------- */
+let diagFile = "activity";      // activity | app
+let diagLimit = 300;
+let diagRows = [];              // 当前已加载的解析行
+let diagFilter = { level: "", tag: "", keyword: "" };
+
+async function showDiagnostics() {
+  render(null, `
+    <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
+    <h2 class="section-title">🔍 诊断日志</h2>
+    <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">记录导入 / 考核 / 面试 / LLM 交互 / 系统错误全链路事件（JSONL 落盘，可过滤、导出，用于问题追踪）</div>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <button class="exam-btn ${diagFile === "activity" ? "primary" : "ghost"}" style="padding:6px 12px;font-size:12px" onclick="diagFile='activity';showDiagnostics()">📋 活动日志</button>
+        <button class="exam-btn ${diagFile === "app" ? "primary" : "ghost"}" style="padding:6px 12px;font-size:12px" onclick="diagFile='app';showDiagnostics()">🖥️ 系统日志</button>
+        <span style="flex:1"></span>
+        <select id="diag-limit" style="padding:6px 10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;color:var(--text-0);font-size:12px" onchange="diagLimit=Number(this.value);loadDiag()">
+          <option value="100">最近 100 行</option>
+          <option value="300" selected>最近 300 行</option>
+          <option value="1000">最近 1000 行</option>
+        </select>
+        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="loadDiag()">🔄 刷新</button>
+        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="exportDiag()">📤 导出</button>
+        <button class="exam-btn" style="padding:6px 12px;font-size:12px;color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="clearDiag()">🗑️ 清空</button>
+      </div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <input id="diag-f-level" placeholder="级别过滤: error / warn / info" style="width:160px;padding:7px 11px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;color:var(--text-0);font-size:12px;outline:none">
+        <input id="diag-f-tag" placeholder="tag 过滤: 如 llm-start / exam." style="width:200px;padding:7px 11px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;color:var(--text-0);font-size:12px;outline:none">
+        <input id="diag-f-keyword" placeholder="session / 内容关键词" style="flex:1;min-width:180px;padding:7px 11px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;color:var(--text-0);font-size:12px;outline:none">
+        <button class="exam-btn primary" style="padding:7px 16px;font-size:12px" onclick="applyDiagFilter()">🔎 过滤</button>
+      </div>
+    </div>
+    <div id="diag-status" style="font-size:11.5px;color:var(--text-2);margin-bottom:8px">加载中…</div>
+    <div id="diag-list" style="font-family:var(--mono);font-size:11px;line-height:1.7"></div>
+  `);
+  await loadDiag();
+}
+
+async function loadDiag() {
+  const status = $("#diag-status");
+  const list = $("#diag-list");
+  if (!list) return;
+  status.textContent = "加载中…";
+  try {
+    const res = await fetch(`/api/logs?uid=${encodeURIComponent(UID)}&file=${diagFile}&limit=${diagLimit}`, { cache: "no-store" });
+    const data = await res.json();
+    diagRows = (data.lines || []).map((ln) => { try { return JSON.parse(ln); } catch (e) { return { _raw: ln }; } });
+    status.textContent = `共 ${data.total} 行，当前显示最近 ${diagRows.length} 行（${data.path}）`;
+    renderDiagRows();
+  } catch (e) {
+    status.textContent = "读取失败: " + e.message;
+  }
+}
+
+function applyDiagFilter() {
+  diagFilter.level = ($("#diag-f-level") || {}).value || "";
+  diagFilter.tag = ($("#diag-f-tag") || {}).value || "";
+  diagFilter.keyword = ($("#diag-f-keyword") || {}).value || "";
+  renderDiagRows();
+}
+
+function renderDiagRows() {
+  const list = $("#diag-list");
+  if (!list) return;
+  const { level, tag, keyword } = diagFilter;
+  const kw = (keyword || "").toLowerCase();
+  const rows = diagRows.filter((r) => {
+    if (level && r.level !== level) return false;
+    if (tag && !(r.tag || "").includes(tag)) return false;
+    if (kw) {
+      const hay = JSON.stringify(r).toLowerCase();
+      if (!hay.includes(kw)) return false;
+    }
+    return true;
+  });
+  if (!rows.length) { list.innerHTML = `<div style="color:var(--text-2);padding:20px;text-align:center">无匹配日志</div>`; return; }
+  list.innerHTML = rows.map((r) => {
+    const at = (r.at || "").replace("T", " ").slice(0, 19);
+    const color = r.level === "error" ? "#ff6b6b" : r.level === "warn" ? "#ffb84d" : "#8fa8c8";
+    const tagTxt = r.tag || "-";
+    const sessionTxt = r.session ? `<span style="color:#2fd6b5">[${esc(r.session)}]</span> ` : "";
+    const msgTxt = esc(r.msg || "");
+    const payloadTxt = r.payload && Object.keys(r.payload).length ? `<span style="color:var(--text-2)"> ${esc(JSON.stringify(r.payload).slice(0, 400))}</span>` : "";
+    const rawTxt = r._raw ? `<span style="color:var(--text-2)">${esc(r._raw.slice(0, 300))}</span>` : "";
+    return `<div style="padding:4px 8px;border-left:2px solid ${color}22;background:rgba(255,255,255,0.015);margin-bottom:3px;border-radius:4px;white-space:pre-wrap;word-break:break-all">` +
+      `<span style="color:var(--text-2)">${at}</span> <span style="color:${color}">${esc(r.level || "info")}</span> ${sessionTxt}<span style="color:${color}">${esc(tagTxt)}</span> ${msgTxt}${payloadTxt}${rawTxt}</div>`;
+  }).join("");
+}
+
+function exportDiag() {
+  const txt = diagRows.map((r) => (r._raw ? r._raw : JSON.stringify(r))).join("\n");
+  const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${diagFile}-log-${new Date().toISOString().slice(0, 10)}.txt`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  showToast("📤 已导出 " + diagRows.length + " 行日志");
+}
+
+async function clearDiag() {
+  if (!confirm("确定清空「" + (diagFile === "app" ? "系统日志" : "活动日志") + "」吗？此操作不可撤销（不影响业务数据）。")) return;
+  try {
+    const res = await fetch("/api/logs-clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: UID, file: diagFile }),
+    });
+    const data = await res.json();
+    if (data.ok) { showToast("✅ 日志已清空"); loadDiag(); }
+    else showToast("❌ 清空失败：" + (data.error || ""));
+  } catch (e) {
+    showToast("❌ 清空失败：" + e.message);
+  }
 }
 
 /* ---------------- 初始化 ---------------- */

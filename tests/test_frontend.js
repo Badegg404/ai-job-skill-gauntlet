@@ -38,7 +38,10 @@ const sandbox = {
     removeItem(k) { delete this._d[k]; },
     clear() { this._d = {}; },
   },
-  window: { innerWidth: 1200, innerHeight: 800 },
+  window: {
+    innerWidth: 1200, innerHeight: 800,
+    addEventListener() {}, removeEventListener() {},
+  },
   navigator: {}, location: { href: "", reload() {}, hash: "" },
   fetch: async () => { throw new Error("fetch not allowed in tests"); },
   alert() {}, confirm: () => true, prompt: () => null,
@@ -49,7 +52,8 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 
-/* ---------- 加载 prompts.js 与 exam.js ---------- */
+/* ---------- 加载 logger.js 与 prompts.js、exam.js ---------- */
+vm.runInContext(fs.readFileSync(path.join(WEB, "logger.js"), "utf-8"), sandbox, { filename: "logger.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "prompts.js"), "utf-8"), sandbox, { filename: "prompts.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "scoring.js"), "utf-8"), sandbox, { filename: "scoring.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "profile.js"), "utf-8"), sandbox, { filename: "profile.js" });
@@ -551,6 +555,57 @@ test("理论 prompt 题型分配自洽（任意 count：选择 = N−2×⌊N/4�
     const jud = Math.floor(n / 4), sel = n - 2 * jud;
     assert.ok(p.includes(sel + " 道概念辨析") && p.includes(jud + " 道判断题") && p.includes(jud + " 道填空题"), "count=" + n + " 题型 " + sel + "+" + jud + "+" + jud);
   }
+});
+
+console.log("\n== 前端 Logger（日志系统） ==");
+test("Logger.begin 生成 sessionId 且可聚合", () => {
+  const s = raw("Logger.begin(\'imp\')");
+  assert.ok(typeof s === "string" && s.startsWith("imp_"), "imp_ 前缀");
+  assert.strictEqual(raw("Logger.session"), s, "session 已设置");
+});
+test("Logger.info 组装 JSONL 行（at/level/session/tag/msg/payload）", () => {
+  raw("Logger.buffer = []");
+  raw("Logger.begin(\'exam\')");
+  raw("Logger.info(\'exam.start\', \'开始考核\', { mode: \'theory\' })");
+  const row = json("Logger.buffer[0]");
+  assert.ok(row.at, "at 时间戳");
+  assert.strictEqual(row.level, "info");
+  assert.ok(String(row.session).startsWith("exam_"), "session 关联");
+  assert.strictEqual(row.tag, "exam.start");
+  assert.strictEqual(row.msg, "开始考核");
+  assert.strictEqual(row.payload.mode, "theory");
+});
+test("Logger.error 级别与全局兜底可写（未捕获异常不阻塞）", () => {
+  raw("Logger.buffer = []");
+  raw("Logger.error(\'sys.uncaught\', \'测试错误\', { stack: \'at x\' })");
+  const row = json("Logger.buffer[0]");
+  assert.strictEqual(row.level, "error");
+  assert.strictEqual(row.tag, "sys.uncaught");
+});
+test("Logger.flush 批量上报（fetch 收到 uid + rows，buffer 清空）", async () => {
+  let captured = null;
+  const origFetch = sandbox.fetch;
+  sandbox.fetch = async (url, opts) => { captured = { url, opts }; return { ok: true, json: async () => ({ ok: true }) }; };
+  try {
+    raw("Logger.buffer = []");
+    raw("Logger.info(\'a\', \'1\')");
+    raw("Logger.warn(\'b\', \'2\')");
+    await raw("Logger._flush()");
+    assert.strictEqual(captured.url, "/api/log");
+    const body = JSON.parse(captured.opts.body);
+    assert.ok(Array.isArray(body.rows) && body.rows.length === 2, "rows 批量 2 条");
+    assert.ok(typeof body.uid === "string", "uid 字段");
+    assert.strictEqual(raw("Logger.buffer.length"), 0, "buffer 已清空");
+  } finally {
+    sandbox.fetch = origFetch;
+  }
+});
+test("reportDebug 兼容：走 Logger（旧 tag 调用点不变）", () => {
+  raw("Logger.buffer = []");
+  raw("reportDebug(\'llm-ok\', { count: 3 })");
+  const row = json("Logger.buffer[0]");
+  assert.strictEqual(row.tag, "llm-ok");
+  assert.strictEqual(row.payload.count, 3);
 });
 
 console.log("");

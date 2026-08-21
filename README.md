@@ -54,6 +54,7 @@ This system fixes exactly that: **turn your study materials into questions that 
 | 📘 **Theory Exam** | Multiple-choice / true-false / fill-in-the-blank, judged by code with zero error |
 | 🛠️ **Practical Exam** | Questions built on **your course's actual code** — not a generic "implement a function", but "fix the filter logic in this demo" |
 | 💼 **Interview** | Pick from 8 AI roles; a simulated interviewer that **probes, downgrades, roasts, and ends the interview early** |
+| 🔍 **Diagnostics Log** | JSONL event logs for every feature (import / exam / interview / LLM calls / system errors); filter, export and clear from the in-app Diagnostics page |
 | 🧬 **10-Dimension Profile** | Radar chart + baseline level + job-match suggestions |
 | 🎮 **Gamified Growth** | XP / levels / badges / streaks |
 | 🔒 **Local-first** | Notes, question banks & history live in `~/.exam-center/`; your API key never leaves the browser. AI question generation / grading / interview send **material excerpts** (concepts, chapter summaries, code snippets) directly to the model provider you configure — nothing is stored server-side |
