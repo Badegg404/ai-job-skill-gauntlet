@@ -115,6 +115,36 @@ def log_json(logger, level, tag, msg="", payload=None, **extra):
         logger.info(text)
 
 
+# ===== 重置竞态防护（reset-ts 墓碑） =====
+# 背景：saveState 是 fire-and-forget 的 /api/profile-save，用户点「重置」时，
+# 重置前已发出的旧保存请求可能晚于 reset-all 到达并被无条件写盘 → 旧数据（含能力画像）复活。
+# 方案：reset-all 写 reset-ts 时间戳墓碑；profile-save 携带 clientTs（保存发起时刻），
+#        clientTs 早于 reset-ts 的请求视为「重置前挂起的旧请求」，丢弃不写盘。
+RESET_TS_FILE = "reset-ts"
+
+
+def is_stale_profile_save(udir, client_ts):
+    """client_ts 早于最近一次重置时间戳 → 该保存是重置前挂起的旧请求，应丢弃。
+
+    udir: 用户目录 Path；client_ts: 前端 saveState 发起时刻（毫秒时间戳，可为空/字符串）。
+    缺 clientTs（老前端）或文件缺失时不拦截，保持兼容。
+    """
+    if not client_ts:
+        return False
+    try:
+        client_ts = float(client_ts)
+    except (TypeError, ValueError):
+        return False
+    ts_file = Path(udir) / RESET_TS_FILE
+    if not ts_file.exists():
+        return False
+    try:
+        reset_ts = float(ts_file.read_text(encoding="utf-8").strip())
+    except Exception:
+        return False
+    return client_ts < reset_ts
+
+
 # 静态资源目录：PyInstaller 打包后从 _MEIPASS 读取；源码运行时用本地 web/
 class CourseHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -404,6 +434,12 @@ class CourseHandler(SimpleHTTPRequestHandler):
             return
         try:
             d = ensure_user(uid)
+            # 重置竞态防护：重置前挂起的旧保存请求（clientTs 早于 reset-ts）丢弃，防止旧数据复活
+            if is_stale_profile_save(d, data.get("clientTs")):
+                log_json(APP_LOGGER, "warn", "profile.stale-save-dropped", "丢弃重置前挂起的旧 profile 保存",
+                         {"uid": uid, "clientTs": data.get("clientTs")})
+                self._send_json({"ok": True, "stale": True})
+                return
             (d / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
             self._send_json({"ok": True, "saved": str(d / "profile.json")})
         except Exception as e:
@@ -756,6 +792,12 @@ class CourseHandler(SimpleHTTPRequestHandler):
         if clear_fail:
             log_json(APP_LOGGER, "warn", "profile.reset-partial", "重置数据时部分文件删除失败",
                      {"uid": uid, "failed": clear_fail})
+        # 重置竞态防护：写 reset-ts 时间戳墓碑——之后到达的旧 profile-save（clientTs 更早）将被丢弃，
+        # 杜绝「重置前挂起的保存请求晚到 → 旧能力画像/记录复活」（用户实测 bug）
+        try:
+            (d / RESET_TS_FILE).write_text(str(time.time() * 1000), encoding="utf-8")
+        except Exception as e:
+            log_json(APP_LOGGER, "warn", "profile.reset-ts-fail", "写 reset-ts 墓碑失败", {"err": str(e)})
         log_json(activity_logger(uid), "info", "profile.reset", "用户重置了全部数据", {"resetDir": str(d)})
         self._send_json({"ok": True, "reset": str(d)})
 

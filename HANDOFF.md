@@ -12,7 +12,7 @@
 ## 项目现状（2026-08-22 会话结束时）
 
 - 最新 commit：本地已提交（未推送），含日志系统全套（P0 基础设施 + P1 功能打点 + P2 诊断中心）
-- 测试：115 全绿（后端 26 + 前端 89，./run_tests.sh）
+- 测试：122 全绿（后端 32 + 前端 90，./run_tests.sh）
 - 日志系统：前端 Logger（web/logger.js）+ 后端 stdlib logging + GUI 诊断中心（详见下）
 - 运行中：http://127.0.0.1:8765/exam.html（重启：kill $(lsof -ti :8765) + open dist/AI岗位能力试炼.app）
 - 用户 LLM：model deepseek-v4-flash，base https://api.agicto.cn/v1（中转站，易空响应/限流——导入失败读日志，见下）
@@ -39,6 +39,7 @@
 
 ## 已知坑（踩过的）
 
+- **重置后数据复活（能力画像/记录/徽章）**：saveState 是 fire-and-forget 的 /api/profile-save，重置前挂起的旧请求晚于 reset-all 到达会被无条件写回 → 旧数据复活（用户实测：重置后综合能力画像数据还在）。根治：reset-all 写 reset-ts 墓碑（毫秒时间戳），profile-save 带 clientTs，clientTs < reset-ts 的请求丢弃（server.py is_stale_profile_save；saveState body 带 clientTs；resetAllData 顺序=重置内存→清 localStorage→reset-all→saveState 空 state 落盘→reload）
 - 转义地狱：TS 模板字符串→python→JS 链，用 base64 管道/read+edit 精确替换，别信嵌套转义（写含模板字符串的 JS 用 \${ 转义或字符串拼接）
 - 日志测试/本地联调：用 EXAM_CENTER_HOME=/tmp/xxx 起临时服务器，避免污染真实用户目录；沙箱下 ~/.exam-center 可能不可写（PermissionError 是沙箱限制，非代码 bug）
 - 前端 Logger 必须挂到全局（window + globalThis 双暴露），否则 vm 测试环境取不到

@@ -190,14 +190,15 @@ function loadState() {
 }
 function saveState() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-  // 同步到服务器（跨浏览器持久化）
+  // 同步到服务器（跨浏览器持久化）；clientTs = 保存发起时刻，用于重置竞态防护
+  // （重置前挂起的旧请求 clientTs 早于 reset-ts 会被服务端丢弃，防止旧数据复活）
   try {
-    fetch(`./api/profile-save`, {
+    return fetch(`./api/profile-save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: UID, profile: state }),
+      body: JSON.stringify({ uid: UID, profile: state, clientTs: Date.now() }),
     }).catch(() => {});
-  } catch (e) { /* ignore */ }
+  } catch (e) { return Promise.resolve(); }
 }
 
 /* 记录考过的题（用于回顾题抽题） */
@@ -731,7 +732,16 @@ function testLLMConnection() {
 async function resetAllData() {
   if (!confirm("确定要彻底重置所有数据吗？将清空：考核记录、徽章、错题本、资料目录、课程库、昵称，以及 LLM 配置。此操作不可撤销。")) return;
   Logger.warn("profile.reset", "用户请求重置全部数据");
-  // 1. 清空服务器端数据（当前课程、课程库、资料目录、档案、导入存档）
+  // 1. 先重置内存状态（含昵称、课程、LLM）——之后的任何 saveState 都只会保存空 state
+  state = { nickname: "", xp: 0, level: 1, exams: 0, bestCombo: 0, lastScore: 0, bestInterview: 0, crossExam: false, practicalDone: false, modesDone: [], streak: 0, bestStreak: 0, lastStudyDay: "", abilityBest: {}, abilityProfile: {}, imports: 0, history: [], wrongBook: [], interviewLogs: [], jobExtraQuestions: {}, askedLog: {} };
+  NICKNAME = "";
+  LLM_KEY = ""; LLM_BASE = ""; LLM_MODEL = "";
+  COURSE = null;
+  // 2. 清空浏览器 localStorage（昵称、LLM 配置、state、uid 缓存；保留 llmGuided，欢迎弹窗严格只出现一次）
+  try {
+    ["examCenter.uid", "examCenter.nickname", "examCenter.llmKey", "examCenter.llmBase", "examCenter.llmModel", "examCenter.v1"].forEach((k) => localStorage.removeItem(k));
+  } catch (e) { /* ignore */ }
+  // 3. 清空服务器端数据（当前课程、课程库、资料目录、档案、导入存档）+ 写 reset-ts 墓碑
   try {
     await fetch("./api/reset-all", {
       method: "POST",
@@ -739,15 +749,9 @@ async function resetAllData() {
       body: JSON.stringify({ uid: UID }),
     });
   } catch (e) { /* ignore */ }
-  // 2. 清空浏览器 localStorage（昵称、LLM 配置、state、uid 缓存；保留 llmGuided，欢迎弹窗严格只出现一次）
-  try {
-    ["examCenter.uid", "examCenter.nickname", "examCenter.llmKey", "examCenter.llmBase", "examCenter.llmModel", "examCenter.v1"].forEach((k) => localStorage.removeItem(k));
-  } catch (e) { /* ignore */ }
-  // 3. 重置内存状态（含昵称、课程、LLM）
-  state = { nickname: "", xp: 0, level: 1, exams: 0, bestCombo: 0, lastScore: 0, bestInterview: 0, crossExam: false, practicalDone: false, modesDone: [], streak: 0, bestStreak: 0, lastStudyDay: "", abilityBest: {}, abilityProfile: {}, imports: 0, history: [], wrongBook: [], interviewLogs: [], jobExtraQuestions: {}, askedLog: {} };
-  NICKNAME = "";
-  LLM_KEY = ""; LLM_BASE = ""; LLM_MODEL = "";
-  COURSE = null;
+  // 4. 同步空 state 落盘（clientTs 晚于 reset-ts，正常写入空 profile.json）——
+  //    同时挡住「重置前挂起的旧 saveState 请求晚到写回旧数据」（服务端按 clientTs < reset-ts 丢弃）
+  try { await saveState(); } catch (e) { /* ignore */ }
   showToast("✅ 已彻底重置，恢复到初始状态");
   // 重新加载，回到全新用户状态（重新获取 uid、加载空数据）
   setTimeout(() => location.reload(), 900);

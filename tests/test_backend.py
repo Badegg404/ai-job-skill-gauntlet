@@ -13,6 +13,7 @@ test_backend.py — 后端纯函数测试集
 import json
 import re
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -247,6 +248,64 @@ class TestLogSystem(unittest.TestCase):
             lg.info('{"k": 1}')
             self.assertTrue(p.exists())
             self.assertIn("k", p.read_text(encoding="utf-8"))
+
+
+class TestResetTombstone(unittest.TestCase):
+    """重置竞态防护：reset-ts 墓碑 + clientTs 校验（用户实测：重置后能力画像数据复活）"""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.udir = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_no_client_ts_not_stale(self):
+        """老前端不带 clientTs → 不拦截（兼容）"""
+        import server
+        (self.udir / "reset-ts").write_text("1000000", encoding="utf-8")
+        self.assertFalse(server.is_stale_profile_save(self.udir, None))
+
+    def test_no_tombstone_not_stale(self):
+        """未重置过（无 reset-ts 文件）→ 不拦截"""
+        import server
+        self.assertFalse(server.is_stale_profile_save(self.udir, 100))
+
+    def test_older_client_ts_is_stale(self):
+        """clientTs 早于 reset-ts → 旧请求，丢弃"""
+        import server
+        (self.udir / "reset-ts").write_text("2000000", encoding="utf-8")
+        self.assertTrue(server.is_stale_profile_save(self.udir, 1000000))
+
+    def test_newer_client_ts_not_stale(self):
+        """clientTs 晚于 reset-ts → 新请求，正常保存"""
+        import server
+        (self.udir / "reset-ts").write_text("2000000", encoding="utf-8")
+        self.assertFalse(server.is_stale_profile_save(self.udir, 3000000))
+
+    def test_invalid_client_ts_not_stale(self):
+        """非法 clientTs → 不拦截"""
+        import server
+        (self.udir / "reset-ts").write_text("2000000", encoding="utf-8")
+        self.assertFalse(server.is_stale_profile_save(self.udir, "abc"))
+
+    def test_reset_then_stale_save_does_not_write(self):
+        """端到端逻辑：reset 后旧请求不得重建 profile.json（新请求可写）"""
+        import server
+        from storage import ensure_user
+        uid = "dev_tomb"
+        d = ensure_user(uid)
+        # 模拟重置：清数据 + 写墓碑
+        (d / "profile.json").write_text(json.dumps({"xp": 999}, ensure_ascii=False), encoding="utf-8")
+        (d / "reset-ts").write_text(str(time.time() * 1000), encoding="utf-8")
+        # 旧请求（clientTs 早于墓碑）→ 丢弃
+        old_ts = time.time() * 1000 - 60000
+        self.assertTrue(server.is_stale_profile_save(d, old_ts))
+        # 新请求 → 允许
+        new_ts = time.time() * 1000 + 1000
+        self.assertFalse(server.is_stale_profile_save(d, new_ts))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

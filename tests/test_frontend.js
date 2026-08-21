@@ -607,6 +607,20 @@ test("reportDebug 兼容：走 Logger（旧 tag 调用点不变）", () => {
   assert.strictEqual(row.tag, "llm-ok");
   assert.strictEqual(row.payload.count, 3);
 });
+test("saveState 携带 clientTs（重置竞态防护依赖此字段）", async () => {
+  let captured = null;
+  const origFetch = sandbox.fetch;
+  sandbox.fetch = async (url, opts) => { captured = { url, opts }; return { ok: true, json: async () => ({ ok: true }) }; };
+  try {
+    await raw("saveState()");
+    assert.strictEqual(captured.url, "./api/profile-save");
+    const body = JSON.parse(captured.opts.body);
+    assert.strictEqual(typeof body.clientTs, "number", "clientTs 为时间戳");
+    assert.ok(body.clientTs > 0);
+  } finally {
+    sandbox.fetch = origFetch;
+  }
+});
 
 console.log("");
 console.log("通过 " + passed + " 个，失败 " + failed + " 个");
