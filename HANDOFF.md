@@ -26,7 +26,7 @@
 4. **题型公式自洽**（web/prompts.js buildImportTheoryPrompt）：N=count||16；nJudge=⌊N/4⌋；nChoice=N−2×nJudge（任意 N 自洽）。
 5. **挂库**：前端 hangQ（去重 seenTxt + normalize）→ data.course.quiz；成功提示必须用 data.course.quiz（挂库后），不能用 data.dir.course（后端挂库前）。
 6. **防重入**：importBusy 锁（导入中再次点击提示并忽略，成功/失败都复位）。
-7. **日志系统**（详见 docs/日志系统规划方案.md）：
+7. **日志系统**（实现详见本文件下方「日志系统」说明，规划文档已随实施完成归档删除）：
    - 前端 web/logger.js：Logger 单例（begin 生成 sessionId / info/warn/error / 50ms 批量上报 /api/log），window.onerror + unhandledrejection 全局兜底；reportDebug 升级为其内部实现（旧 tag 调用点零改动）
    - 后端 server.py：stdlib logging——app.log（全局：启动/请求/未捕获异常，RotatingFileHandler 2MB×5）+ 用户 logs/activity.log（业务事件 JSONL）；do_GET/do_POST 统一包装（请求耗时 + 顶层 traceback）；except:pass 审计补 warn
    - 接口：/api/log（批量上报）、/api/logs（只读，file=activity|app&limit）、/api/logs-clear（清空）；旧 /api/import-debug 保留兼容
