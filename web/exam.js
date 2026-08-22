@@ -730,7 +730,7 @@ function testLLMConnection() {
 }
 
 async function resetAllData() {
-  if (!confirm("确定要彻底重置所有数据吗？将清空：考核记录、徽章、错题本、资料目录、课程库、昵称，以及 LLM 配置。此操作不可撤销。")) return;
+  if (!confirm("确定要彻底重置所有数据吗？将清空：考核记录、徽章、错题本、资料目录、课程库、昵称，以及 LLM 配置。此操作不可撤销。\n\n⚠️ 请先关闭本应用的其他窗口/标签页，重置期间在其他窗口操作可能被重置覆盖。")) return;
   Logger.warn("profile.reset", "用户请求重置全部数据");
   // 1. 先重置内存状态（含昵称、课程、LLM）——之后的任何 saveState 都只会保存空 state
   state = { nickname: "", xp: 0, level: 1, exams: 0, bestCombo: 0, lastScore: 0, bestInterview: 0, crossExam: false, practicalDone: false, modesDone: [], streak: 0, bestStreak: 0, lastStudyDay: "", abilityBest: {}, abilityProfile: {}, imports: 0, history: [], wrongBook: [], interviewLogs: [], jobExtraQuestions: {}, askedLog: {} };
@@ -906,7 +906,11 @@ async function handleImportFolder(files) {
 
 async function reportDebug(tag, payload) {
   // 统一日志上报：批量走 Logger → /api/log → 用户 activity.log（旧 tag 与调用点全部兼容）
-  Logger.info(tag, "", payload);
+  // 级别映射（评审 C）：失败事件必须能按 level 过滤，不能被 info 淹没
+  let level = "info";
+  if (/fail|error/.test(tag)) level = "error";
+  else if (/retry|empty|partial/.test(tag)) level = "warn";
+  Logger[level](tag, "", payload);
 }
 
 

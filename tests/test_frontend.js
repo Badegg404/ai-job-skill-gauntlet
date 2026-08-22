@@ -607,6 +607,18 @@ test("reportDebug 兼容：走 Logger（旧 tag 调用点不变）", () => {
   assert.strictEqual(row.tag, "llm-ok");
   assert.strictEqual(row.payload.count, 3);
 });
+test("reportDebug 级别映射：fail→error / empty·partial→warn / ok→info", () => {
+  const cases = [
+    ["llm-fail", "error"], ["llm-net-retry", "warn"], ["llm-empty", "warn"],
+    ["llm-partial-final", "warn"], ["llm-ok", "info"], ["llm-start", "info"],
+  ];
+  for (const [tag, want] of cases) {
+    raw("Logger.buffer = []");
+    raw("reportDebug(\'" + tag + "\', {})");
+    const row = json("Logger.buffer[0]");
+    assert.strictEqual(row.level, want, tag + " 级别应映射为 " + want + "（实际 " + row.level + "）");
+  }
+});
 test("saveState 携带 clientTs（重置竞态防护依赖此字段）", async () => {
   let captured = null;
   const origFetch = sandbox.fetch;

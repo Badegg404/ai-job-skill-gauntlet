@@ -115,6 +115,24 @@ def log_json(logger, level, tag, msg="", payload=None, **extra):
         logger.info(text)
 
 
+def _clear_log_file(logger):
+    """清空日志文件：对 handler 主动轮转 + 删除全部备份，让句柄指向新文件。
+
+    不能裸 unlink 主文件——RotatingFileHandler 持有旧 inode 的句柄，
+    继续写会写到已删除文件，新日志在文件系统不可见（用户实测：清空后诊断中心永远为空）。
+    doRollover 会关旧句柄、把旧文件轮转为 .1、重建空主文件，再删掉 .1..N 即彻底清空。
+    """
+    from logging.handlers import RotatingFileHandler as _RFH
+    for h in logger.handlers:
+        if isinstance(h, _RFH):
+            try:
+                h.doRollover()
+                for i in range(1, _LOG_BACKUPS + 1):
+                    Path(h.baseFilename + "." + str(i)).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 # ===== 重置竞态防护（reset-ts 墓碑） =====
 # 背景：saveState 是 fire-and-forget 的 /api/profile-save，用户点「重置」时，
 # 重置前已发出的旧保存请求可能晚于 reset-all 到达并被无条件写盘 → 旧数据（含能力画像）复活。
@@ -201,22 +219,21 @@ class CourseHandler(SimpleHTTPRequestHandler):
 
     # ---- 业务接口 ----
     # 统一包装：任何 handler 抛出的异常都带 traceback 落盘（不静默），并记录请求耗时
-    def _log_request(self, method, path, dur_ms, err=None):
-        """请求级日志：慢请求(>2s)记 warn，其余记 info；异常由调用方单独记 error。"""
-        if err:
-            log_json(APP_LOGGER, "error", "http.uncaught", "未捕获异常: " + path,
-                     {"method": method, "path": path, "durMs": dur_ms, "err": str(err)})
-            return
+    def _log_request(self, method, path, dur_ms):
+        """请求级日志：慢请求(>2s)记 warn；API 请求记 info；静态资源只记 slow（避免淹没业务日志）。
+        异常路径不调用本函数（异常已单独记 http.uncaught error），避免同一异常记两行。"""
         if dur_ms > 2000:
             log_json(APP_LOGGER, "warn", "http.slow", "慢请求", {"method": method, "path": path, "durMs": dur_ms})
-        else:
+        elif path.startswith("/api/"):
             log_json(APP_LOGGER, "info", "http." + method.lower(), "", {"path": path, "durMs": dur_ms})
 
     def do_GET(self):
         t0 = time.time()
+        exc = None
         try:
             self._dispatch_get()
         except Exception as e:
+            exc = e
             import traceback
             log_json(APP_LOGGER, "error", "http.uncaught", "GET 未捕获异常: " + self.path,
                      {"method": "GET", "path": self.path, "err": str(e),
@@ -226,7 +243,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
             except Exception:
                 pass
         finally:
-            self._log_request("GET", self.path, round((time.time() - t0) * 1000))
+            if exc is None:
+                self._log_request("GET", self.path, round((time.time() - t0) * 1000))
 
     def _dispatch_get(self):
         if self._reject_nonlocal():
@@ -274,9 +292,11 @@ class CourseHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         t0 = time.time()
+        exc = None
         try:
             self._dispatch_post()
         except Exception as e:
+            exc = e
             import traceback
             log_json(APP_LOGGER, "error", "http.uncaught", "POST 未捕获异常: " + self.path,
                      {"method": "POST", "path": self.path, "err": str(e),
@@ -286,7 +306,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
             except Exception:
                 pass
         finally:
-            self._log_request("POST", self.path, round((time.time() - t0) * 1000))
+            if exc is None:
+                self._log_request("POST", self.path, round((time.time() - t0) * 1000))
 
     def _dispatch_post(self):
         if self._reject_nonlocal():
@@ -716,14 +737,14 @@ class CourseHandler(SimpleHTTPRequestHandler):
         if file not in ("activity", "app"):
             self._send_json({"error": "file 只能是 activity 或 app"}, 400)
             return
-        p = (DATA_DIR / "logs" / "app.log") if file == "app" else (user_dir(uid) / "logs" / "activity.log")
-        cleared = False
-        if p.exists():
-            try:
-                p.unlink()
-                cleared = True
-            except Exception as e:
-                log_json(APP_LOGGER, "error", "log.clear-fail", "日志清空失败", {"path": str(p), "err": str(e)})
+        # 用 _clear_log_file 轮转重建句柄（裸 unlink 会让 handler 写已删 inode → 新日志不可见，评审发现的高严重 bug）
+        lg = APP_LOGGER if file == "app" else activity_logger(uid)
+        try:
+            _clear_log_file(lg)
+            cleared = True
+        except Exception as e:
+            cleared = False
+            log_json(APP_LOGGER, "error", "log.clear-fail", "日志清空失败", {"path": str(lg.handlers[0].baseFilename) if lg.handlers else str(p), "err": str(e)})
         log_json(activity_logger(uid), "info", "log.cleared", "日志已清空", {"file": file})
         self._send_json({"ok": True, "cleared": cleared})
 
@@ -770,6 +791,13 @@ class CourseHandler(SimpleHTTPRequestHandler):
         if not uid:
             return
         d = user_dir(uid)
+        # 重置竞态防护（评审 B）：墓碑必须在删除**之前**写——多线程下若先删后写，
+        # 重置前挂起的旧 profile-save 恰在删除后、墓碑前的窗口到达会读不到墓碑而放行（复活窗口）。
+        # 先写墓碑则整个删除期间旧请求（clientTs 更早）都会被拦截。
+        try:
+            (d / RESET_TS_FILE).write_text(str(time.time() * 1000), encoding="utf-8")
+        except Exception as e:
+            log_json(APP_LOGGER, "warn", "profile.reset-ts-fail", "写 reset-ts 墓碑失败", {"err": str(e)})
         clear_fail = 0
         # 删除当前课程 + 档案
         for name in ("course.json", "profile.json"):
@@ -792,12 +820,6 @@ class CourseHandler(SimpleHTTPRequestHandler):
         if clear_fail:
             log_json(APP_LOGGER, "warn", "profile.reset-partial", "重置数据时部分文件删除失败",
                      {"uid": uid, "failed": clear_fail})
-        # 重置竞态防护：写 reset-ts 时间戳墓碑——之后到达的旧 profile-save（clientTs 更早）将被丢弃，
-        # 杜绝「重置前挂起的保存请求晚到 → 旧能力画像/记录复活」（用户实测 bug）
-        try:
-            (d / RESET_TS_FILE).write_text(str(time.time() * 1000), encoding="utf-8")
-        except Exception as e:
-            log_json(APP_LOGGER, "warn", "profile.reset-ts-fail", "写 reset-ts 墓碑失败", {"err": str(e)})
         log_json(activity_logger(uid), "info", "profile.reset", "用户重置了全部数据", {"resetDir": str(d)})
         self._send_json({"ok": True, "reset": str(d)})
 

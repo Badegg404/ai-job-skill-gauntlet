@@ -12,7 +12,8 @@
 ## 项目现状（2026-08-22 会话结束时）
 
 - 最新 commit：本地已提交（未推送），含日志系统全套（P0 基础设施 + P1 功能打点 + P2 诊断中心）
-- 测试：122 全绿（后端 32 + 前端 90，./run_tests.sh）
+- 测试：123 全绿（后端 32 + 前端 91，./run_tests.sh）
+- 评审修复（Claude 评审 e54fad9/31ffdda 后）：清空日志改用 doRollover 重建句柄（原裸 unlink 导致新日志写已删 inode 不可见）、reset-ts 墓碑挪到删除前、reportDebug 按 tag 映射级别（fail→error/retry·empty→warn）、异常不再双行记录、静态资源不记 info、多标签页重置提示
 - 日志系统：前端 Logger（web/logger.js）+ 后端 stdlib logging + GUI 诊断中心（详见下）
 - 运行中：http://127.0.0.1:8765/exam.html（重启：kill $(lsof -ti :8765) + open dist/AI岗位能力试炼.app）
 - 用户 LLM：model deepseek-v4-flash，base https://api.agicto.cn/v1（中转站，易空响应/限流——导入失败读日志，见下）
