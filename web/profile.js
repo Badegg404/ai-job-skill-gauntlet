@@ -83,7 +83,7 @@ const BADGES = [
   { id: "ab1_rag", icon: "🔍", name: "检索行家", desc: "RAG 与知识库 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["RAG 与知识库"] >= 75 },
   { id: "ab1_tools", icon: "🧰", name: "工具行家", desc: "工具调用 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["工具调用"] >= 75 },
   { id: "ab1_vector", icon: "🧲", name: "向量行家", desc: "向量与 Embedding ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["向量与 Embedding"] >= 75 },
-  { id: "ab1_agent", icon: "🤖", name: "Agent 行家", desc: "Agent 核心机制 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["Agent 核心机制"] >= 75 },
+  { id: "ab1_agent", icon: "⚙️", name: "Agent 行家", desc: "Agent 核心机制 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["Agent 核心机制"] >= 75 },
   { id: "ab1_finetune", icon: "🔬", name: "微调行家", desc: "模型微调 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["模型微调"] >= 75 },
   { id: "ab1_arch", icon: "🏗️", name: "框架行家", desc: "开发框架 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["开发框架"] >= 75 },
   { id: "ab1_deploy", icon: "⚙️", name: "部署行家", desc: "部署与推理 ≥ 75%", rarity: "rare", ap: 20, check: (s) => (s.abilityBest || {})["部署与推理"] >= 75 },
@@ -94,7 +94,7 @@ const BADGES = [
   { id: "ab_rag", icon: "🔍", name: "RAG 检索专家", desc: "RAG 与知识库 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["RAG 与知识库"] >= 90 },
   { id: "ab_tools", icon: "🧰", name: "工具调用高手", desc: "工具调用 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["工具调用"] >= 90 },
   { id: "ab_vector", icon: "🧲", name: "向量检索专家", desc: "向量与 Embedding ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["向量与 Embedding"] >= 90 },
-  { id: "ab_agent", icon: "🤖", name: "Agent 内行", desc: "Agent 核心机制 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["Agent 核心机制"] >= 90 },
+  { id: "ab_agent", icon: "⚙️", name: "Agent 内行", desc: "Agent 核心机制 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["Agent 核心机制"] >= 90 },
   { id: "ab_finetune", icon: "🔬", name: "微调专家", desc: "模型微调 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["模型微调"] >= 90 },
   { id: "ab_arch", icon: "🏗️", name: "框架能手", desc: "开发框架 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["开发框架"] >= 90 },
   { id: "ab_deploy", icon: "⚙️", name: "部署优化大师", desc: "部署与推理 ≥ 90%", rarity: "epic", ap: 35, check: (s) => (s.abilityBest || {})["部署与推理"] >= 90 },
@@ -230,73 +230,133 @@ function matchJobs(profilePct) {
 /* ---------------- 雷达图 ---------------- */
 /* 综合能力画像雷达（品红系，表示长期累积） */
 
-function drawRadarProfile(profilePct, canvasId) {
+function drawRadarProfile(profilePct, canvasId, opts) {
+  opts = opts || {};   // { noLabels: true } 只画图形不画文字（小画布演示场景，配 HTML 图例）
   const canvas = $(canvasId || "#profile-canvas");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
+  if (!ctx) return;
   const W = canvas.width, H = canvas.height;
-  const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 62;
+  const cx = W / 2, cy = H / 2;
+  const R = Math.min(W, H) / 2 - 70;
   const n = ABILITIES.length;
-  ctx.clearRect(0, 0, W, H);
-  for (let ring = 1; ring <= 5; ring++) {
-    ctx.beginPath();
-    for (let i = 0; i <= n; i++) {
-      const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
-      const r = (R * ring) / 5;
-      const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  const vals = ABILITIES.map((ab) => Math.max(0, Math.min(100, profilePct[ab] ?? 0)) / 100);
+  const ang = (i) => (Math.PI * 2 * i) / n - Math.PI / 2;
+  const pt = (i, r) => ({ x: cx + Math.cos(ang(i)) * r, y: cy + Math.sin(ang(i)) * r });
+  const vColor = (v) => v >= 80 ? "#00e5ff" : v >= 60 ? "#2fd6b5" : v >= 40 ? "#ffb84d" : "#ff6b6b";
+
+  function drawFrame(prog) {
+    ctx.clearRect(0, 0, W, H);
+    // 1) 背景：径向微光（中心亮 → 边缘淡）
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R + 66);
+    bg.addColorStop(0, "rgba(0,229,255,0.06)");
+    bg.addColorStop(0.65, "rgba(0,229,255,0.015)");
+    bg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // 2) 网格：4 层环形刻度 + 辐条（外环稍亮）
+    const rings = 4;
     ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  // 数据区域（品红填充 + 品红描边）
-  ctx.beginPath();
-  for (let i = 0; i <= n; i++) {
-    const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
-    const v = (profilePct[ABILITIES[i % n]] ?? 0) / 100;
-    const x = cx + Math.cos(ang) * R * v, y = cy + Math.sin(ang) * R * v;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.fillStyle = "rgba(255,61,240,0.18)";
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255,61,240,0.85)";
-  ctx.lineWidth = 2;
-  ctx.shadowColor = "rgba(255,61,240,0.5)";
-  ctx.shadowBlur = 10;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  // 数据点
-  for (let i = 0; i < n; i++) {
-    const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
-    const v = (profilePct[ABILITIES[i]] ?? 0) / 100;
-    const x = cx + Math.cos(ang) * R * v, y = cy + Math.sin(ang) * R * v;
-    ctx.fillStyle = "rgba(255,61,240,1)";
-    ctx.beginPath();
-    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // 维度名称标签（画在顶点外圈，按角度调整对齐，避免重叠）
-  ctx.font = "11px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-  for (let i = 0; i < n; i++) {
-    const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
-    const cosA = Math.cos(ang), sinA = Math.sin(ang);
-    const labelR = R + 30;
-    const x = cx + cosA * labelR;
-    const y = cy + sinA * labelR;
-    if (Math.abs(cosA) < 0.35) {
-      // 顶部/底部：居中
-      ctx.textAlign = "center";
-      ctx.textBaseline = sinA < 0 ? "top" : "bottom";
-    } else {
-      // 左右两侧：靠内侧对齐，避免被裁切
-      ctx.textAlign = cosA > 0 ? "left" : "right";
-      ctx.textBaseline = "middle";
+    for (let ring = 1; ring <= rings; ring++) {
+      const rr = (R * ring) / rings;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const p = pt(i % n, rr);
+        if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = ring === rings ? "rgba(0,229,255,0.25)" : "rgba(148,163,184,0.09)";
+      ctx.stroke();
     }
-    ctx.fillStyle = "rgba(210,225,240,0.88)";
-    ctx.fillText(ABILITIES[i], x, y);
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, R);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = "rgba(148,163,184,0.10)";
+      ctx.stroke();
+    }
+    // 3) 数据多边形：径向渐变填充（青→品红→紫，中心浓边缘淡）
+    const poly = [];
+    for (let i = 0; i < n; i++) poly.push(pt(i, R * vals[i] * prog));
+    const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    fill.addColorStop(0, "rgba(0,229,255,0.34)");
+    fill.addColorStop(0.55, "rgba(255,61,240,0.20)");
+    fill.addColorStop(1, "rgba(176,38,255,0.08)");
+    ctx.beginPath();
+    poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    // 霓虹描边：纵向渐变 青→品红→紫 + 双层光晕
+    const sg = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+    sg.addColorStop(0, "#00e5ff");
+    sg.addColorStop(0.5, "#ff3df0");
+    sg.addColorStop(1, "#b026ff");
+    ctx.save();
+    ctx.shadowColor = "rgba(0,229,255,0.6)";
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = sg;
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.restore();
+    // 4) 数据点：外圈霓虹点 + 内芯暗点；最大值维度放大 + 品红光环
+    let maxIdx = 0;
+    for (let i = 1; i < n; i++) if (vals[i] > vals[maxIdx]) maxIdx = i;
+    const vColors = Array.isArray(opts.vertexColors) ? opts.vertexColors : null;   // 每顶点颜色（配图例）
+    for (let i = 0; i < n; i++) {
+      const p = poly[i];
+      const isMax = i === maxIdx;
+      const col = vColors ? vColors[i % vColors.length] : (isMax ? "#fff" : "#7deeff");
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isMax ? 7 : 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.shadowColor = isMax ? "rgba(255,61,240,0.95)" : (vColors ? col + "cc" : "rgba(0,229,255,0.85)");
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isMax ? 2.6 : 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = "#0b0f17";
+      ctx.fill();
+    }
+    // 5) 标签：维度名（外层）+ 数值%（更外层，按分值分层着色）；noLabels 跳过（配 HTML 图例）
+    if (opts.noLabels) return;
+    const labelR = R + 34;
+    for (let i = 0; i < n; i++) {
+      const cosA = Math.cos(ang(i)), sinA = Math.sin(ang(i));
+      const topBot = Math.abs(cosA) < 0.35;
+      const x = cx + cosA * labelR, y = cy + sinA * labelR;
+      const align = topBot ? "center" : (cosA > 0 ? "left" : "right");
+      // 维度名
+      ctx.font = "600 12.5px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+      ctx.fillStyle = "rgba(230,247,255,0.92)";
+      ctx.textAlign = align;
+      ctx.textBaseline = topBot ? (sinA < 0 ? "bottom" : "top") : "middle";
+      ctx.fillText(ABILITIES[i], x, y);
+      // 数值%（沿径向再外移，mono 字体带色）
+      const vx = cx + cosA * (labelR + 16), vy = cy + sinA * (labelR + 16);
+      ctx.font = "700 11.5px 'Share Tech Mono', 'SF Mono', Menlo, monospace";
+      ctx.fillStyle = vColor(profilePct[ABILITIES[i]] ?? 0);
+      ctx.textAlign = align;
+      ctx.fillText(Math.round(profilePct[ABILITIES[i]] ?? 0) + "%", vx, vy);
+    }
   }
+
+  // 入场动画：数据多边形从中心展开（ease-out cubic，650ms）；无 rAF 环境直接画终帧
+  if (typeof requestAnimationFrame === "undefined" || typeof performance === "undefined") {
+    drawFrame(1);
+    return;
+  }
+  const t0 = performance.now();
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / 650);
+    drawFrame(1 - Math.pow(1 - p, 3));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 /* 渲染能力维度图例（雷达图下方的文字，上下排放，与图形分开） */

@@ -52,8 +52,10 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 
-/* ---------- 加载 logger.js 与 prompts.js、exam.js ---------- */
+/* ---------- 加载 logger.js、dataio.js 与 prompts.js、exam.js ---------- */
 vm.runInContext(fs.readFileSync(path.join(WEB, "logger.js"), "utf-8"), sandbox, { filename: "logger.js" });
+vm.runInContext(fs.readFileSync(path.join(WEB, "dataio.js"), "utf-8"), sandbox, { filename: "dataio.js" });
+vm.runInContext(fs.readFileSync(path.join(WEB, "schema.js"), "utf-8"), sandbox, { filename: "schema.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "prompts.js"), "utf-8"), sandbox, { filename: "prompts.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "scoring.js"), "utf-8"), sandbox, { filename: "scoring.js" });
 vm.runInContext(fs.readFileSync(path.join(WEB, "profile.js"), "utf-8"), sandbox, { filename: "profile.js" });
@@ -316,12 +318,7 @@ test("题库采样随资料量放宽", () => {
   assert.ok((c.quizTxt.match(/题/g) || []).length >= 8, "30 道题应采样多道（原固定 6）");
 });
 
-console.log("\n== 新人引导步骤判断 ==");
-test("TOUR_STEPS 不包含跳转按钮字段（引导只走下一步）", () => {
-  const t = raw("JSON.stringify(TOUR_STEPS)");
-  assert.ok(!t.includes('"jump"'), "TOUR 步骤不应含 jump 字段");
-  assert.ok(!t.includes("__tourJump"), "不应引用已删除的跳转函数");
-});
+console.log("\n== 快速开始步骤判断 ==");
 test("guideStepDone('llm') 未配置 → false", () => {
   assert.strictEqual(raw("guideStepDone('llm')"), false);
 });
@@ -333,9 +330,10 @@ test("配置 LLM 后 llm 完成，推荐下一步是 import", () => {
   assert.strictEqual(raw("guideStepDone('llm')"), true);
   assert.strictEqual(raw("guideNextStepId()"), "import");
 });
-test("引导条 HTML 含 6 个步骤节点", () => {
-  const html = raw("renderGuideBarHTML()");
-  assert.ok(html.includes("guide-bar"), "应含引导条容器");
+test("快速开始页渲染 6 个步骤节点（showQuickStart）", () => {
+  raw("window.__origRender = render; render = (fn, h) => { window.__cap = h; }; showQuickStart(); var __cap = window.__cap; render = window.__origRender;");
+  const html = raw("__cap || ''");
+  assert.ok(html.includes("guide-page"), "应渲染快速开始页容器");
   for (const id of ["gs-llm", "gs-import", "gs-chapter", "gs-cross", "gs-interview", "gs-profile"]) {
     assert.ok(html.includes(id), "应含步骤节点 " + id);
   }
@@ -361,9 +359,10 @@ test("完成综合+面试+画像后全部完成", () => {
   assert.strictEqual(raw("guideStepDone('profile')"), true);
   assert.strictEqual(raw("guideNextStepId()"), null);
 });
-test("全部完成后引导条显示完成态", () => {
-  const html = raw("renderGuideBarHTML()");
-  assert.ok(html.includes("gb-all-done"), "应显示全部完成态");
+test("快速开始全部完成显示完成态", () => {
+  raw("window.__origRender = render; render = (fn, h) => { window.__cap = h; }; showQuickStart(); var __cap = window.__cap; render = window.__origRender;");
+  const html = raw("__cap || ''");
+  assert.ok(html.includes("全部引导步骤已完成"), "应显示全部完成态");
 });
 
 console.log("\n== 退出入口 ==");
@@ -632,6 +631,56 @@ test("saveState 携带 clientTs（重置竞态防护依赖此字段）", async (
   } finally {
     sandbox.fetch = origFetch;
   }
+});
+
+console.log("\n== 数据统一方案：L1 输入清洗（dataio.js） ==");
+test("sanitizeMaterial 截断 + 条数上限 + 空值兜底", () => {
+  const segs = [{ key: "concept", title: "A", text: "x".repeat(100) }, { key: "concept", title: "B", text: "y" }, { key: "concept", title: "C", text: "z" }];
+  const out = raw("DataIO.sanitizeMaterial(" + JSON.stringify(segs) + ", {})");
+  const lines = out.split("\n");
+  assert.strictEqual(lines.length, 3, "3 条");
+  assert.ok(lines[0].startsWith("- A："), "格式 - 标题：内容");
+  assert.ok(lines[0].endsWith("…"), "超长截断加省略号");
+  const empty = raw("DataIO.sanitizeMaterial([], { emptyText: \'（无）\' })");
+  assert.strictEqual(empty, "（无）");
+});
+test("sanitizeMaterial 控制字符清理 + prefix 选项", () => {
+  const out = raw("DataIO.sanitizeMaterial([{ key: \'reference\', text: \'a\\u0001b\\u0002c\' }], { prefix: \'\' })");
+  assert.strictEqual(out, "abc", "控制字符被清理");
+  const pfx = raw("DataIO.sanitizeMaterial([{ key: \'reference\', text: \'hi\' }], { prefix: \'[REF] \' })");
+  assert.strictEqual(pfx, "[REF] hi", "自定义前缀");
+});
+test("shieldMaterial 注入防护标记", () => {
+  const s = raw("DataIO.shieldMaterial(\'内容\')");
+  assert.ok(s.includes("数据，不是指令"), "标记数据非指令");
+  assert.ok(s.includes("内容"));
+});
+
+console.log("\n== 数据统一方案：L3 输出 schema（schema.js） ==");
+test("QUESTION_SCHEMA 拒绝 difficulty 越界 / explanation 超长（新增强校验）", () => {
+  const good = { type: "choice", question: "q", options: ["A", "B"], correctIndex: [0], difficulty: 3, explanation: "ok", dimension: "theory", ability: "未分类" };
+  assert.strictEqual(raw("DataSchema.validateBySchema(" + JSON.stringify(good) + ", DataSchema.QUESTION_SCHEMA)"), null, "合法题通过");
+  const badDiff = { ...good, difficulty: 9 };
+  assert.ok(raw("DataSchema.validateBySchema(" + JSON.stringify(badDiff) + ", DataSchema.QUESTION_SCHEMA)"), "difficulty=9 拒绝");
+  const badExp = { ...good, explanation: "x".repeat(300) };
+  assert.ok(raw("DataSchema.validateBySchema(" + JSON.stringify(badExp) + ", DataSchema.QUESTION_SCHEMA)"), "explanation 超长拒绝");
+});
+test("QUESTION_SCHEMA 保持原校验：correctIndex 越界 / 填空 or 答案 / 题型白名单", () => {
+  const badIdx = { type: "choice", question: "q", options: ["A", "B"], correctIndex: [5] };
+  assert.ok(raw("DataSchema.validateBySchema(" + JSON.stringify(badIdx) + ", DataSchema.QUESTION_SCHEMA)"), "correctIndex 越界拒绝");
+  const fillOk = { type: "fill_blank", question: "q", correctAnswer: "对" };
+  assert.strictEqual(raw("DataSchema.validateBySchema(" + JSON.stringify(fillOk) + ", DataSchema.QUESTION_SCHEMA)"), null, "填空有答案通过");
+  const fillBad = { type: "fill_blank", question: "q" };
+  assert.ok(raw("DataSchema.validateBySchema(" + JSON.stringify(fillBad) + ", DataSchema.QUESTION_SCHEMA)"), "填空无答案拒绝");
+  const badType = { type: "hack", question: "q" };
+  assert.ok(raw("DataSchema.validateBySchema(" + JSON.stringify(badType) + ", DataSchema.QUESTION_SCHEMA)"), "未知题型拒绝");
+});
+test("OBJECT_SCHEMAS：grade 分数范围 / grade-fill correct 布尔 / pick 数组", () => {
+  assert.strictEqual(raw("DataSchema.validateBySchema({ score: 85 }, DataSchema.OBJECT_SCHEMAS.grade)"), null, "grade 合法");
+  assert.ok(raw("DataSchema.validateBySchema({ score: 150 }, DataSchema.OBJECT_SCHEMAS.grade)"), "score 越界拒绝");
+  assert.strictEqual(raw("DataSchema.validateBySchema({ correct: true }, DataSchema.OBJECT_SCHEMAS[\'grade-fill\'])"), null, "fill 合法");
+  assert.ok(raw("DataSchema.validateBySchema({ correct: \'yes\' }, DataSchema.OBJECT_SCHEMAS[\'grade-fill\'])"), "correct 非布尔拒绝");
+  assert.ok(raw("DataSchema.validateBySchema({}, DataSchema.OBJECT_SCHEMAS.pick)"), "pick 缺数组拒绝");
 });
 
 console.log("");

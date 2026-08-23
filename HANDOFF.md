@@ -7,14 +7,14 @@
 你是「AI 岗位能力试炼」项目的开发助手。请先读项目根目录的 HANDOFF.md（本文件）和 skill 方法论文档，再开始工作。
 
 项目：/Users/huaidan/Desktop/AI Coding/AI面试能力评估 —— 本地 AI 面试/考核桌面应用（Python stdlib 后端 + 原生 JS 前端 + 浏览器直连 OpenAI 兼容 LLM）。
-方法论 skill：/Users/huaidan/Desktop/skill/程序开发方法论-skill.md（含宁缺毋滥全套、评审循环、LLM 集成坑——动手前必读）。
+方法论 skill：项目根目录 程序开发方法论-skill.md（含宁缺毋滥全套、评审循环、LLM 集成坑——动手前必读；2026-08-23 起从 ~/Desktop/skill/ 移入项目统一管理）。
 
-## 项目现状（2026-08-22 会话结束时）
+## 项目现状（2026-08-24 会话结束时）
 
-- 最新 commit：本地已提交（未推送），含日志系统全套（P0 基础设施 + P1 功能打点 + P2 诊断中心）
-- 测试：123 全绿（后端 32 + 前端 91，./run_tests.sh）
-- 评审修复（Claude 评审 e54fad9/31ffdda 后）：清空日志改用 doRollover 重建句柄（原裸 unlink 导致新日志写已删 inode 不可见）、reset-ts 墓碑挪到删除前、reportDebug 按 tag 映射级别（fail→error/retry·empty→warn）、异常不再双行记录、静态资源不记 info、多标签页重置提示
-- 日志系统：前端 Logger（web/logger.js）+ 后端 stdlib logging + GUI 诊断中心（详见下）
+- 最新 commit：本地已提交（未推送），含数据统一方案 + UI 全面优化（详见 docs/评审-数据统一方案与UI优化.md）
+- 测试：122 全绿（后端 26 + 前端 96，./run_tests.sh）
+- **数据统一方案**（docs/数据统一方案.md）：L1 输入清洗 web/dataio.js（INPUT_LIMITS/sanitizeMaterial/shieldMaterial）→ L2 统一调用器 llmJSON（7 处直接 fetch 全部迁移）→ L3 输出 schema web/schema.js（QUESTION_SCHEMA/OBJECT_SCHEMAS/validateBySchema；validateLLMQuestion 重构为数据驱动）
+- **UI 优化**（docs/UI优化方案.md）：SVG 图标系统（web/icons.js，Lucide 49 个，icon()/neonIcon()）、常驻左侧导航（分组可折叠）、首页改为产品展示厅（docs/首页重构方案.md：Hero+Showcase 四卡+我的数据+成长激励条）、能力雷达图霓虹重绘（渐变填充/渐变描边/入场动画）、面试考核独立一级导航 + 精致介绍页、新手引导 Tour 移除（快速开始页替代）、顶栏霓虹灯牌标题
 - 运行中：http://127.0.0.1:8765/exam.html（重启：kill $(lsof -ti :8765) + open dist/AI岗位能力试炼.app）
 - 用户 LLM：model deepseek-v4-flash，base https://api.agicto.cn/v1（中转站，易空响应/限流——导入失败读日志，见下）
 
@@ -33,7 +33,12 @@
    - GUI：首页「🔍 诊断日志」→ 按级别/tag/session 过滤 + 导出 + 清空
    - 隐私：API key 永不入日志；payload 快照截断（1500/800/2000 字上限）
 
-## 测试（tests/test_frontend.js 89 + test_backend.py 26）
+8. **数据统一三层**：L1 web/dataio.js 清洗（sanitizeMaterial：控制字符清理/空白归一/按 key 条数+长度截断/前缀可配；shieldMaterial 注入防护）；L3 web/schema.js 校验（validateBySchema 数据驱动：when/or/type/enum/whitelist/range/rangeFn/detail 嵌套；ability 白名单含「未分类」兜底）；OBJECT_SCHEMAS 挂到 8 个 llmJSON validateObj 调用点。
+9. **SVG 图标系统**：web/icons.js（Lucide ISC 协议，内联 currentColor 可继承发光）；icon(name, cls) 通用 + neonIcon(name, gid, from, to) 渐变描边（大图标用）；CSS .svg-icon/.lg/.xl/.xxl。新图标：下载到 /tmp 后 python 合并进 icons.js（正则提取 ICONS JSON → 追加 → 写回）。
+10. **侧边栏**：SIDE_NAV 支持 children 分组（章节考核=导入+目录；综合考核=理论+实战；面试考核独立一级）；toggleSideGroup 折叠（localStorage dsh.navCollapsed.* 记忆）；setNavActive 激活子项自动展开父组。
+11. **首页=产品展示厅**（goHome）：Hero（价值主张+双 CTA+演示雷达 HOME_EXAMPLE_PCT）→ Showcase 四卡（buildShowcaseHTML，HOME_EXAMPLES 静态示例，不依赖 LLM/数据）→ 我的数据（真实雷达+最近动态，无数据空态）→ 成长激励条（下一称号进度+连击/徽章/AP/下一步推荐 guideNextStepId）。
+
+## 测试（tests/test_frontend.js 96 + test_backend.py 26）
 
 - 关键测试：parseLLMJSON 容错（剥代码块/截断）、findQuestionsArray、count 参数化（4→2/1/1）、alignTheoryCount 不变量（现改为公式断言）、导入拆分 prompt 断言。
 - 日志测试：前端 Logger 单测（begin/session、行组装、级别、flush 批量上报、reportDebug 兼容）；后端 log_json 行格式/级别映射/RotatingFileHandler。
@@ -68,7 +73,7 @@
 - **仓库**：https://github.com/Badegg404/ai-job-skill-gauntlet（已可访问，同学分享链接）
 ## 总结经验到 skill（持续约定）
 
-- 方法论文档：/Users/huaidan/Desktop/skill/程序开发方法论-skill.md（宁缺毋滥全套、评审循环、LLM 集成坑、bug 案例库）
+- 方法论文档：项目根目录 程序开发方法论-skill.md（宁缺毋滥全套、评审循环、LLM 集成坑、bug 案例库）
 - 约定：每次开发/修 bug/评审后，把新踩的坑和新经验**沉淀到 skill**（现象→根因→解法），并**检查重复与过时**（如 3.8 空响应条就因逻辑演进更新过）
 - 更新时保持通用方法论口吻（示例来自本项目，映射到通用场景），宁缺毋滥原则贯穿
 - 大改动或新会话开工前先读 skill

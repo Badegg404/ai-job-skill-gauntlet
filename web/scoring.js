@@ -94,37 +94,11 @@ function fixTruncatedJSON(text) {
   return changed ? s : null;
 }
 
-/* 校验 LLM 题目字段完整性：任何关键字段缺失/越界都判为坏题（程序兜底） */
+/* 校验 LLM 题目字段完整性：任何关键字段缺失/越界都判为坏题（程序兜底）
+ * 数据统一方案 P3：手写 if 重构为数据驱动 DataSchema.QUESTION_SCHEMA（等价 + 强化 difficulty/explanation 校验） */
 
 function validateLLMQuestion(q) {
-  if (!q || !q.question) return false;
-  const t = q.type;
-  const validTypes = ["choice", "multi_choice", "true_false", "fill_blank", "essay", "practical"];
-  if (!validTypes.includes(t)) return false;
-  // 选择题：必须 >=2 选项，且 correctIndex 在范围内
-  if (t === "choice" || t === "multi_choice") {
-    if (!Array.isArray(q.options) || q.options.length < 2) return false;
-    const ci = Array.isArray(q.correctIndex) ? q.correctIndex : [q.correctIndex];
-    if (!ci.length) return false;
-    if (ci.some((i) => Number(i) < 0 || Number(i) >= q.options.length)) return false;
-  }
-  // 判断题：必须有 correctAnswer
-  if (t === "true_false" && !q.correctAnswer) return false;
-  // 填空题：必须有答案
-  if (t === "fill_blank" && !q.correctAnswer && !(Array.isArray(q.fillAnswers) && q.fillAnswers.length)) return false;
-  // 问答题/实战题：必须有参考答案
-  if (t === "essay" && !q.answer) return false;
-  if (t === "practical") {
-    const p = q.practical || {};
-    if (p.compareMode === "code_choice") {
-      // 代码客观题：必须含选项 + 代码（单文件 code / 多文件 codeBlocks）
-      if (!Array.isArray(p.options) || p.options.length < 2) return false;
-      const ci = Array.isArray(p.correctIndex) ? p.correctIndex : [p.correctIndex];
-      if (!ci.length || ci.some((i) => Number(i) < 0 || Number(i) >= p.options.length)) return false;
-      if (!p.code && !(Array.isArray(p.codeBlocks) && p.codeBlocks.length)) return false;
-    } else if (!q.answer && !p.referenceAnswer) return false;
-  }
-  return true;
+  return DataSchema.validateBySchema(q, DataSchema.QUESTION_SCHEMA) === null;
 }
 
 /* 归一化 LLM 生成的题目：correctIndex 转数组、ability 白名单、字段补全。

@@ -207,8 +207,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
             mtime = int(f.stat().st_mtime) if f.exists() else 0
             return f"{name}?v={mtime}"
 
-        html = re.sub(r'href="(style\.css)\?v=[^"]*"', lambda m: f'href="{versioned(m.group(1))}"', html)
-        html = re.sub(r'src="(neural\.js|job_knowledge\.js|exam\.js)\?v=[^"]*"', lambda m: f'src="{versioned(m.group(1))}"', html)
+        # 静态资源版本注入：通配所有本地 .js/.css（?v= 可选），按文件 mtime 生成版本号，避免浏览器缓存旧版
+        html = re.sub(r'(src|href)="([^"]+\.(?:js|css))(?:\?v=[^"]*)?"', lambda m: f'{m.group(1)}="{versioned(m.group(2))}"', html)
 
         body = html.encode("utf-8")
         self.send_response(200)

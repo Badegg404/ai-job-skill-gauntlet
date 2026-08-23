@@ -1,4 +1,4 @@
-# ⚡ AI Job Skill Gauntlet · AI 岗位能力试炼
+# ⚡ AI Job Skill Gauntlet · AI 技能考核中心
 
 <div align="center">
 
@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-8A2BE2)](#)
 [![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20Qwen-FF6B6B)](#)
 [![Local-first](https://img.shields.io/badge/Privacy-Key%20Local-2FD6B5)](#)
-[![Version](https://img.shields.io/badge/Version-2.0-FFB84D)](#)
+[![Version](https://img.shields.io/badge/Version-2.1-FFB84D)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 **English** · [中文文档](./README.zh-CN.md)
@@ -25,6 +25,16 @@
 > - **Parallel import**: theory (16) + practical (10) are generated in two concurrent requests with per-batch status cards and cross-batch dedup; any failed batch rolls the whole import back with an explicit reason.
 > - **Practical questions**: code-choice objective tasks (spotlight / functions / trace / bugfix / progression) grounded in the real code from your materials; interview reference questions are now a curated 5 per directory, synthesized from the whole directory.
 > - Import failures (no LLM key, generation errors) are blocked or rolled back with a clear "import failed, reason: …" message — no more silent half-imports.
+
+> 🆕 **v2.1 — UI Overhaul & Unified Data Pipeline**
+> - **Product-showcase homepage**: Hero (value proposition + 4 capability tags + dual CTA) with a 340×340 neon radar (colored vertices ↔ 10-item legend), 4 static Showcase cards, "My Data" (real radar + recent activity), and a growth-incentive bar (next title progress + streak/badges/AP).
+> - **Persistent left sidebar**: grouped navigation (chapter exams / comprehensive exams / interview as top-level), click-to-collapse groups (remembered in localStorage), fixed floating while scrolling.
+> - **LLM data governance (3 layers)**: L1 input sanitization (web/dataio.js) → L2 unified llmJSON caller (all 7 direct fetches migrated) → L3 schema validation (web/schema.js, QUESTION_SCHEMA + 8 OBJECT_SCHEMAS). Behavior-equivalent fallbacks preserved (adaptive pick, fuzzy fill-blank match, min-count-0).
+> - **SVG icon system**: 53 Lucide icons replace control emojis; neon-gradient icons for the three exam modes; robot emoji replaced with SVG everywhere (modals/avatars/status).
+> - **Neon radar rewrite**: radial gradient fill (cyan→magenta→violet), dual-layer glow stroke, animated entry; color-dot vertices + HTML legend (10 dimensions).
+> - **Interview fixes**: loading now goes straight into the interview room (dead-code entry removed); exam-intro pages (theory/practical/interview, interview has a dedicated refined page with job cards + timeline + FAQ).
+> - **Product naming**: unified as "AI 技能考核中心 · AI Job Skill Gauntlet" (topbar neon title, sidebar brand, page title, reports).
+
 
 <div align="center">
 
@@ -53,9 +63,9 @@ This system fixes exactly that: **turn your study materials into questions that 
 | 📥 **Materials → Questions** | Drop in a whole folder; LLM parses notes/code/data and generates **12 exam questions** (8 theory + 4 practical) + 3 job-interview reference questions |
 | 📘 **Theory Exam** | Multiple-choice / true-false / fill-in-the-blank, judged by code with zero error |
 | 🛠️ **Practical Exam** | Questions built on **your course's actual code** — not a generic "implement a function", but "fix the filter logic in this demo" |
-| 💼 **Interview** | Pick from 8 AI roles; a simulated interviewer that **probes, downgrades, roasts, and ends the interview early** |
+| 💼 **Interview** | Pick from 8 AI roles via a dedicated intro page; a simulated interviewer that **probes, downgrades, roasts, and ends the interview early** |
 | 🔍 **Diagnostics Log** | JSONL event logs for every feature (import / exam / interview / LLM calls / system errors); filter, export and clear from the in-app Diagnostics page |
-| 🧬 **10-Dimension Profile** | Radar chart + baseline level + job-match suggestions |
+| 🧬 **10-Dimension Profile** | Neon radar with color-coded vertices + legend, baseline level + job-match suggestions |
 | 🎮 **Gamified Growth** | XP / levels / badges / streaks |
 | 🔒 **Local-first** | Notes, question banks & history live in `~/.exam-center/`; your API key never leaves the browser. AI question generation / grading / interview send **material excerpts** (concepts, chapter summaries, code snippets) directly to the model provider you configure — nothing is stored server-side |
 
@@ -125,7 +135,7 @@ open dist/AI面试能力评估.app    # macOS
 The app guides first-time users through the flow step by step — no more wondering what to do first:
 
 - **🏠 Home-page guide bar** (always visible until all steps are done): a 6-step checklist — ① Configure LLM → ② Import study materials → ③ Chapter exam (per-section, recommended first) → ④ Comprehensive exam (all chapters mixed) → ⑤ Interview (AI interviewer, last challenge) → ⑥ View your skill profile. Each step shows its real-time status (✅ done / 🔒 waiting), and the **next action you should take is highlighted with a "Go →" button**.
-- **🎬 Auto-played highlight tour** (first launch only, replayable anytime via the "👀 New-user guide demo" button): a spotlight overlay walks you through the flow — chapter first, then comprehensive, interview last — with a step bubble and next/prev navigation.
+- **🚀 Quick-start page**: a 6-step action checklist (configure LLM → import → chapter → comprehensive → interview → profile), each step with a "Go →" jump button (the old spotlight tour was removed in v2.1).
 
 ### Configure the LLM (required)
 
@@ -169,14 +179,18 @@ On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek
 ├── parser/              # Markdown note parser
 ├── web/                 # frontend (zero-framework vanilla JS)
 │   ├── exam.js          # core interaction logic
+│   ├── icons.js         # Lucide SVG icon library (53 icons)
+│   ├── dataio.js        # LLM input sanitization (INPUT_LIMITS)
+│   ├── schema.js        # LLM output schema validation
+│   ├── logger.js        # frontend log reporting
 │   ├── prompts.js       # all LLM prompts (centralized)
 │   ├── scoring.js       # judging / question validation
 │   ├── profile.js       # skill profile / levels / badges
 │   ├── job_knowledge.js # job-knowledge loader (fetches the JSON)
 │   ├── job_knowledge.json  # 8-role knowledge base (real interview questions)
 │   └── fonts/           # web fonts (Orbitron / Share Tech Mono / Smiley)
-├── tests/               # 38 tests (16 backend + 22 frontend)
-├── docs/                # maintenance docs
+├── tests/               # 122 tests (26 backend + 96 frontend)
+├── docs/                # maintenance docs (architecture diagram / data plan / UI plan / review)
 └── build.spec           # PyInstaller config
 ```
 
@@ -185,7 +199,7 @@ On first launch, fill in an API key under "⚙️ Settings" (supports **DeepSeek
 ## 🧪 Tests
 
 ```bash
-./run_tests.sh    # run all 38 tests
+./run_tests.sh    # run all 122 tests
 ```
 
 ---

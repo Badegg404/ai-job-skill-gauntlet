@@ -70,7 +70,7 @@ const LEVEL_TITLES = [
   { score: 40, title: "AI 工具使用者", icon: "🛠️" },
   { score: 50, title: "提示词工程师", icon: "💬" },
   { score: 60, title: "RAG/应用工程师", icon: "📚" },
-  { score: 68, title: "Agent 工程师", icon: "🤖" },
+  { score: 68, title: "Agent 工程师", icon: "⚙️" },
 ];
 
 // 专家方向（三个平级分支，按对应能力维度分数解锁，无先后）
@@ -167,6 +167,109 @@ function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&
  * esc 只做 HTML 转义；onclick 属性内的 HTML 实体会被浏览器解码还原，
  * 故这里必须补转义：反斜杠、单引号、换行、</script> 与实体还原。 */
 function shuffle(arr) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+/* SVG 图标渲染（数据统一方案 UI 篇：控件 emoji → 线框 SVG 图标）
+ * icon('home') 返回 <svg> 字符串；CSS .svg-icon 控制尺寸，currentColor 继承文字颜色 */
+function icon(name, cls = "") {
+  const svg = (typeof Icons !== "undefined" && Icons.ICONS && Icons.ICONS[name]) || "";
+  if (!svg) return "";
+  const m = svg.match(/<svg[^>]*>([\s\S]*)<\/svg>/);
+  const body = m ? m[1] : svg;
+  return '<svg class="svg-icon ' + cls + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+}
+
+/* 赛博霓虹图标：渐变描边（Lucide 图形 + linearGradient），用于大图标场景（如三大考核卡） */
+function neonIcon(name, gid, from, to, cls = "") {
+  const svg = (typeof Icons !== "undefined" && Icons.ICONS && Icons.ICONS[name]) || "";
+  if (!svg) return "";
+  const m = svg.match(/<svg[^>]*>([\s\S]*)<\/svg>/);
+  const body = m ? m[1] : svg;
+  return '<svg class="svg-icon neon ' + cls + '" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+    '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1">' +
+    '<stop offset="0%" stop-color="' + from + '"/><stop offset="100%" stop-color="' + to + '"/>' +
+    '</linearGradient></defs>' +
+    '<g stroke="url(#' + gid + ')" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + body + '</g></svg>';
+}
+
+/* ===== 常驻左侧导航（UI 优化：图标 + 文字，当前项霓虹高亮） ===== */
+const SIDE_NAV = [
+  { key: "home", icon: "home", label: "首页", fn: "goHome()" },
+  { key: "quickstart", icon: "rocket", label: "快速开始", fn: "showQuickStart()" },
+  { key: "sep" },
+  // 章节考核分组：导入资料（建目录）→ 资料目录（按章节考核）
+  {
+    key: "chapter", icon: "book-open", label: "章节考核", children: [
+      { key: "import", icon: "upload", label: "导入资料", fn: "showImportPanel()" },
+      { key: "library", icon: "folder", label: "资料目录", fn: "showLibrary()" },
+    ],
+  },
+  // 综合考核分组：子项点击先进「考核介绍页」，开启按钮后进考核（含加载动画）
+  {
+    key: "exam", icon: "target", label: "综合考核", children: [
+      { key: "theory", icon: "brain", label: "理论考核", fn: "showExamIntro('theory')" },
+      { key: "practical", icon: "code", label: "实战考核", fn: "showExamIntro('practical')" },
+    ],
+  },
+  // 面试考核：一级入口（介绍页更精致丰富）
+  { key: "interview", icon: "messages-square", label: "面试考核", fn: "showExamIntro('interview')" },
+  { key: "sep" },
+  { key: "radar", icon: "radar", label: "能力画像", fn: "showAssessment()" },
+  { key: "history", icon: "history", label: "学习历史", fn: "showHistory()" },
+  { key: "wrongbook", icon: "bookmark", label: "错题本", fn: "showWrongBook()" },
+  { key: "diag", icon: "terminal", label: "诊断日志", fn: "showDiagnostics()" },
+  { key: "sep" },
+  { key: "settings", icon: "settings", label: "设置", fn: "showSettings()" },
+];
+
+function renderSidebar() {
+  const el = $("#app-sidebar");
+  if (!el) return;
+  const items = SIDE_NAV.map((it) => it.key === "sep"
+    ? '<div class="side-nav-sep"></div>'
+    : it.children
+      ? '<div class="side-group" data-group="' + it.key + '">' +
+        '<div class="side-group-title" onclick="toggleSideGroup(\'' + it.key + '\')">' + icon(it.icon) + '<span>' + it.label + '</span><span class="sg-arrow">▾</span></div>' +
+        it.children.map((c) => `<div class="side-nav-item" data-key="${c.key}" onclick="${c.fn}">${icon(c.icon)}<span>${c.label}</span></div>`).join("") +
+        '</div>'
+      : `<div class="side-nav-item" data-key="${it.key}" onclick="${it.fn}">${icon(it.icon)}<span>${it.label}</span></div>`
+  ).join("");
+  el.innerHTML = '<div class="side-brand">AI 技能考核中心</div>' + items + '<div class="side-nav-spacer"></div>';
+  // 恢复折叠记忆
+  SIDE_NAV.forEach((it) => {
+    if (!it.children) return;
+    const g = el.querySelector('[data-group="' + it.key + '"]');
+    if (g && localStorage.getItem("dsh.navCollapsed." + it.key) === "1") g.classList.add("collapsed");
+  });
+}
+
+/* 分组点击折叠/展开（章节考核、综合考核） */
+function toggleSideGroup(key) {
+  const g = document.querySelector('[data-group="' + key + '"]');
+  if (!g) return;
+  const nowCollapsed = g.classList.toggle("collapsed");
+  try { localStorage.setItem("dsh.navCollapsed." + key, nowCollapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+}
+
+function setNavActive(key) {
+  const items = document.querySelectorAll("#app-sidebar .side-nav-item");
+  for (const el of items) {
+    const active = el.dataset.key === key;
+    el.classList.toggle("active", active);
+    if (active) {
+      // 激活子项时自动展开其所属分组
+      const g = el.closest(".side-group");
+      if (g) {
+        g.classList.remove("collapsed");
+        try { localStorage.setItem("dsh.navCollapsed." + g.dataset.group, "0"); } catch (e) { /* ignore */ }
+      }
+    }
+  }
+  // 分组父项联动高亮（子项激活时）
+  document.querySelectorAll("#app-sidebar .side-group").forEach((g) => {
+    const any = [...g.querySelectorAll(".side-nav-item")].some((el) => el.classList.contains("active"));
+    g.classList.toggle("has-active", any);
+  });
+}
 
 function jsStr(s) {
   return String(s == null ? "" : s)
@@ -304,8 +407,9 @@ async function llmPickQuestions(pool, mode, count, scope) {
   // scope: "chapter"（章节考核，从本章题库挑、聚焦本章）| "cross"（综合考核，从全题库挑、跨章节覆盖）
   if (!LLM_KEY || !pool || pool.length < count) return null;
   const NL = String.fromCharCode(10);
+  // 数据统一方案 L1：候选题面统一 sanitizeMaterial（quizBrief 60 字上限，行首编号格式保留）
   const brief = pool.slice(0, 100).map((q, i) =>
-    i + "｜[" + q.type + "] " + String(q.question || "").slice(0, 60) + "（维度:" + (q.ability || "?") + " 难度:" + (q.difficulty || 2) + "）"
+    i + "｜[" + q.type + "] " + DataIO.sanitizeMaterial([{ key: "quizBrief", text: q.question || "" }], { prefix: "" }) + "（维度:" + (q.ability || "?") + " 难度:" + (q.difficulty || 2) + "）"
   ).join(NL);
   const modeLabel = mode === "theory" ? "理论" : "实战";
   const goal = scope === "chapter"
@@ -313,25 +417,19 @@ async function llmPickQuestions(pool, mode, count, scope) {
     : "这是一场【综合考核】：从整个题库（跨章节/跨目录）中挑选 " + count + " 道" + modeLabel + "题组卷。要求：跨章节覆盖、维度尽量多样不扎堆、难度有阶梯（基础到进阶）、题目之间不要雷同、优先选质量高有区分度、贴合真实业务的题。";
   const prompt = "你是出题组长。" + goal + NL +
     "只输出 JSON：{'picks': [编号数组]}，编号取自上面列表行首数字。" + NL + "候选题：" + NL + brief;
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器（格式约束块/反馈重出/日志/空响应软处理全覆盖）
   try {
-    let base = String(LLM_BASE || "https://api.deepseek.com");
-    while (base.endsWith("/")) base = base.slice(0, -1);
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({
-        model: LLM_MODEL || "deepseek-chat",
-        messages: [{ role: "system", content: "你只输出 JSON，不输出任何其他文字。" }, { role: "user", content: prompt }],
-        temperature: 0.6, max_tokens: 300, response_format: { type: "json_object" },
-      }),
+    const parsed = await llmJSON({
+      system: "你只输出 JSON，不输出任何其他文字。",
+      prompt,
+      formatHint: PICK_JSON_HINT,
+      expect: "object",
+      part: "pick",
+      maxTokens: 300,
+      temperature: 0.6,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS.pick),
     });
-    if (!res.ok) return null;
-    const content = (await res.json()).choices[0].message.content;
-    let parsed = null;
-    try { parsed = JSON.parse(content); } catch (e) {
-      const a = content.indexOf("{"), b = content.lastIndexOf("}");
-      if (a >= 0 && b > a) try { parsed = JSON.parse(content.slice(a, b + 1)); } catch (e2) {}
-    }
     const picks = Array.isArray(parsed && parsed.picks)
       ? parsed.picks
           .filter((i) => (typeof i === "number" || (typeof i === "string" && String(i).trim() !== "")))
@@ -444,107 +542,228 @@ function render(view, html) {
   if (typeof view === "function") view();
 }
 
+/* ===== 首页产品展示示例（静态演示，不依赖用户数据/LLM） ===== */
+const HOME_EXAMPLE_PCT = {
+  "提示词工程": 82, "RAG 与知识库": 74, "工具调用": 68, "向量与 Embedding": 61,
+  "Agent 核心机制": 58, "模型微调": 42, "开发框架": 66, "部署与推理": 55,
+  "算法与神经网络": 48, "面试表达力": 71,
+};
+/* 雷达顶点 10 色（Hero 演示：顶点颜色 ↔ 右侧图例一一对应） */
+const HOME_LEGEND_COLORS = ["#00e5ff", "#38bdf8", "#ff3df0", "#b026ff", "#2fd6b5", "#ffb84d", "#ff6b6b", "#fb923c", "#f472b6", "#a78bfa"];
+const HOME_EXAMPLES = {
+  theory: { q: "Transformer 中自注意力机制的核心作用是？", opts: ["捕捉序列内任意位置间的依赖关系", "降低模型参数量", "将文本编码为固定长度向量", "加速训练收敛"] },
+  code: { file: "agent.py", code: "def average(nums):\n    return sum(nums) / len(nums)\n\nprint(average([1, 2, 3]))", q: "这段代码的输出是？" },
+  chat: [
+    { role: "iv", text: "介绍一下你负责过的 RAG 项目，检索环节是怎么设计的？" },
+    { role: "me", text: "我们用了混合检索：BM25 关键词 + 向量召回，再按分数融合重排…" },
+    { role: "iv", text: "如果召回结果相关性不高，你会怎么调优？" },
+  ],
+  bars: [
+    { ab: "提示词工程", v: 82 }, { ab: "RAG 与知识库", v: 74 }, { ab: "工具调用", v: 68 },
+    { ab: "Agent 核心机制", v: 61 }, { ab: "开发框架", v: 57 }, { ab: "面试表达力", v: 71 },
+  ],
+};
+
 async function goHome() {
-  const courseTitle = COURSE ? COURSE.title : "加载中…";
-  await refreshDirs();   // 题库按目录存储：以目录聚合判断（脱离 course.json 单课程镜像）
-  const quizCount = (DIRS || []).reduce((s, d) => s + (d.quizCount || 0), 0);
-  const isEmpty = !(DIRS || []).length || quizCount === 0;
-  const assess = baseLevelAssessment();
+  setNavActive("home");
+  await refreshDirs();   // 保持目录缓存刷新（首页聚焦展示，题库状态由侧栏/介绍页承载）
   const profilePct = abilityProfilePct();
   const profileKeys = Object.keys(profilePct);
-  const needLLM = !LLM_KEY;   // LLM 配置是考核前提，未配置直接灰卡
-  const modeCards = [
-    { icon: "📘", title: "理论考核", desc: "跨章节综合 · 概念/原理/判断等客观知识题", tag: "需 LLM", onClick: "startExam('theory')", disabled: isEmpty || needLLM },
-    { icon: "🛠️", title: "实战考核", desc: "跨章节综合 · 代码实战客观题（代码作用/输出预测/Bug 修复）", tag: "需 LLM", onClick: "startExam('practical')", disabled: isEmpty || needLLM },
-    { icon: "💼", title: "面试考核", desc: "AI 面试官仿真对话，按岗位技能严格追问", tag: "需 LLM", onClick: "startInterview()", disabled: isEmpty || needLLM },
-  ];
-  const cards = modeCards.map((m) => `
-    <div class="mode-card ${m.disabled ? "disabled" : ""}" ${m.disabled ? "" : `onclick="${m.onClick}"`}>
-      <div class="mc-icon">${m.icon}</div>
-      <div class="mc-title">${m.title}</div>
-      <div class="mc-desc">${m.desc}</div>
-      <div class="mc-tag">${m.tag}</div>
-    </div>`).join("");
+  const avg = profileAvgScore();
+  const curTitle = currentTitle();
+  const curIdx = currentLevelIndex();
+  const unlocked = BADGES.filter((b) => b.check(state)).length;
+  const ap = calcAP(state);
 
-  const emptyState = isEmpty ? `
-    <div class="card empty-hint" style="margin:18px 0;text-align:center;padding:30px">
-      <div style="font-size:40px;margin-bottom:10px">📥</div>
-      <div style="font-size:21px;font-weight:800;color:var(--accent);font-family:var(--cyber);letter-spacing:1px">SYS:// 题库为空</div>
-      <div style="font-size:11.5px;color:var(--text-1);margin:10px auto;max-width:520px;line-height:1.8">系统默认不预置任何考题。<br>导入你的学习资料，出题引擎将自动生成「理论客观题（选择 / 判断 / 填空）· 实战场景题」，并为对应岗位提炼面试参考题。</div>
-      <button class="exam-btn primary" style="margin-top:14px" onclick="showImportPanel()">📥 导入资料并自动出题</button>
-    </div>` : "";
+  // 成长进度：下一基础称号
+  const nextT = LEVEL_TITLES.find((t) => t.score > avg);
+  let nextTxt, progPct;
+  if (nextT) {
+    const prev = [...LEVEL_TITLES].reverse().find((t) => t.score <= avg) || LEVEL_TITLES[0];
+    const span = Math.max(1, nextT.score - prev.score);
+    progPct = Math.max(4, Math.min(96, Math.round(((avg - prev.score) / span) * 100)));
+    nextTxt = "距离「" + nextT.title + "」还需 " + Math.max(1, nextT.score - avg) + "%";
+  } else {
+    progPct = 100;
+    nextTxt = "基础称号已满 · 冲击专家方向";
+  }
 
-  const profileCard = profileKeys.length ? `
-    <div class="card" style="margin-top:18px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-        <h3 class="section-title" style="margin:0">🧬 综合能力画像</h3>
-        <div style="display:flex;align-items:center;gap:12px">
-          <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="exportProfile()">📤 导出报告</button>
-          <div style="font-size:19px;font-weight:900;font-family:var(--cyber);color:${assess.color}">${assess.icon} ${assess.level}</div>
-        </div>
-      </div>
-      <div style="font-size:12.5px;color:var(--text-2);margin:6px 0 10px">${assess.desc}</div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="radar-wrap"><canvas id="home-profile-canvas" width="480" height="400"></canvas></div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          ${profileKeys.slice().sort((a, b) => (profilePct[b] - profilePct[a])).map((ab) => `
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px">
-                <span style="color:var(--text-1)">${ab}</span>
-                <span style="color:#ff3df0;font-weight:700;font-family:var(--mono)">${profilePct[ab]}%</span>
-              </div>
-              <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
-                <div style="height:100%;width:${profilePct[ab]}%;background:linear-gradient(90deg,#00e5ff,#ff3df0);border-radius:3px"></div>
-              </div>
-            </div>`).join("")}
-          <div style="font-size:11.5px;color:var(--text-2);margin-top:6px">基于 ${state.exams} 次考核 · ${state.imports} 份导入资料的综合评估</div>
-        </div>
-      </div>
-    </div>` : "";
+  // 最近动态（考核 + 面试合并，按时间取最近 3）
+  const modeLabel = (m) => (typeof MODE_LABEL !== "undefined" && MODE_LABEL[m]) ? MODE_LABEL[m] : (m || "");
+  const recentItems = [
+    ...(state.history || []).map((h) => ({ date: h.date, label: modeLabel(h.mode), val: h.score != null ? h.score + "/" + (h.total || 100) : "", fn: "showHistory()" })),
+    ...(state.interviewLogs || []).slice(0, 8).map((l) => ({ date: l.date, label: "面试 · " + (l.job || ""), val: l.score != null ? l.score + " 分" : "评分失败", fn: "showInterviewHistory()" })),
+  ].filter((x) => x.date).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 3);
+  const recentHtml = recentItems.length
+    ? recentItems.map((r) => `
+      <div class="home-recent-item" onclick="${r.fn}">
+        <span style="color:var(--text-1)">${esc(r.label)}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--mono);color:${String(r.val).includes("失败") ? "var(--danger)" : "var(--accent)"}">${esc(r.val)}</span>
+          <span style="font-size:10.5px;color:var(--text-2)">${String(r.date).slice(5, 16).replace("T", " ")}</span>
+        </span>
+      </div>`).join("")
+    : `<div style="font-size:12px;color:var(--text-2);text-align:center;padding:16px 0">暂无考核 / 面试记录 · 完成第一次考核后显示在这里</div>`;
+
+  // 下一步推荐（复用快速开始引导逻辑）
+  const nextId = guideNextStepId();
+  const nextStep = nextId
+    ? ((GUIDE_STEPS.find((s) => s.id === nextId) || {}).title || "继续提升")
+    : "全部完成，继续保持！";
+
+  // 产品功能 Showcase 四卡（静态示例）
+  const showcase = buildShowcaseHTML();
+
+  // Hero 演示雷达的 HTML 图例：10 条，色点颜色与雷达顶点一一对应
+  const demoLegend = ABILITIES.map((ab, i) => {
+    const v = HOME_EXAMPLE_PCT[ab] ?? 0;
+    const c = HOME_LEGEND_COLORS[i % HOME_LEGEND_COLORS.length];
+    return `
+      <div class="dl-row">
+        <span class="dl-dot" style="background:${c};box-shadow:0 0 6px ${c}cc"></span>
+        <span class="dl-name">${esc(ab)}</span>
+        <span class="dl-val" style="color:${c}">${v}%</span>
+      </div>`;
+  }).join("");
 
   render(() => {
+    const demo = document.getElementById("home-demo-canvas");
+    if (demo) drawRadarProfile(HOME_EXAMPLE_PCT, "#home-demo-canvas", { noLabels: true, vertexColors: HOME_LEGEND_COLORS });
     const pc = document.getElementById("home-profile-canvas");
-    if (pc) drawRadarProfile(profilePct, "#home-profile-canvas");
+    if (pc && profileKeys.length) drawRadarProfile(profilePct, "#home-profile-canvas");
   }, `
-    <div class="exam-hero" style="margin-bottom:26px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
-        <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px"><span style="color:#ff3df0">&gt;_</span> SYSTEM // AI 岗位能力试炼 · AI Job Skill Gauntlet</div>
-        <div style="font-size:11.5px;color:var(--text-2);font-family:var(--mono);display:flex;align-items:center;gap:9px">👤 ${esc(displayName())}<span style="color:var(--border)">|</span>${LLM_KEY ? "🤖 " + esc(LLM_MODEL || "deepseek-chat") : "⚠️ 未配置 LLM"}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
-        <div style="font-size:36px;line-height:1;flex-shrink:0">📚</div>
-        <h1 style="font-size:30px;font-weight:800;margin:0;color:var(--accent);text-shadow:0 0 18px rgba(0,229,255,0.35);letter-spacing:1px;line-height:1.2">${esc(courseTitle)}</h1>
-      </div>
-      <div style="font-size:13.5px;color:var(--text-1);line-height:1.7;padding-left:52px">你好，${esc(displayName())}。导入资料 → 自动出题 → 三大维度考核 → 综合评估。</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px"><span style="color:#ff3df0">&gt;_</span> SYSTEM // AI 技能考核中心 · AI Job Skill Gauntlet</div>
+      <div style="font-size:11.5px;color:var(--text-2);font-family:var(--mono);display:flex;align-items:center;gap:9px">👤 ${esc(displayName())}<span style="color:var(--border)">|</span>${LLM_KEY ? icon("robot") + " " + esc(LLM_MODEL || "deepseek-chat") : "⚠️ 未配置 LLM"}</div>
     </div>
+
+    <!-- ① Hero：价值主张 + 双 CTA + 演示雷达 -->
+    <div class="home-hero">
+      <div class="home-hero-left">
+        <!-- 信息层级：LLM 驱动主张(最大) → 全流程说明 → 特性标签 → 行动按钮 -->
+        <!-- 把 LLM 变成考官：考官规则由产品设计定义，LLM 在规则内执行 -->
+        <div class="home-tagline">把 <span class="gt-em">大模型</span> 变成考官，为你的技能把关</div>
+        <div class="home-sub">由 LLM 驱动的动态 AI 考核系统。</div>
+        <div class="home-value">
+          <span class="hv-item">动态出题</span>
+          <span class="hv-item">面试追问</span>
+          <span class="hv-item">代码实战</span>
+          <span class="hv-item">能力评估</span>
+        </div>
+        <div class="home-cta">
+          <button class="exam-btn primary" style="padding:12px 26px;font-size:15px" onclick="showQuickStart()">${icon("rocket")} 快速开始</button>
+          <button class="exam-btn" style="padding:12px 22px;font-size:14px" onclick="showImportPanel()">${icon("upload")} 导入我的资料</button>
+        </div>
+      </div>
+      <div class="home-hero-right">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+          <div style="text-align:center">
+            <canvas id="home-demo-canvas" width="340" height="340"></canvas>
+            <div class="radar-tag">十维能力雷达 · 示例</div>
+          </div>
+          <div class="demo-legend">${demoLegend}</div>
+        </div>
+      </div>
+    </div>
+
     ${!LLM_KEY ? `
-    <div class="card" style="margin-bottom:20px;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-color:rgba(255,61,240,0.35);background:linear-gradient(90deg,rgba(255,61,240,0.07),rgba(176,38,255,0.05))">
-      <div style="font-size:13px;color:var(--text-1)">💡 <strong style="color:var(--accent-2)">提示</strong>：本系统核心能力（题库组卷、出题、题目打标签、语义判分、岗位匹配）由 LLM 驱动，请先在「⚙️ 设置」中配置 API Key，否则无法开始考核。</div>
-      <button class="exam-btn" style="padding:7px 16px;font-size:13px" onclick="showSettings()">⚙️ 去设置</button>
+    <div class="card" style="margin-bottom:18px;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-color:rgba(255,61,240,0.35);background:linear-gradient(90deg,rgba(255,61,240,0.07),rgba(176,38,255,0.05))">
+      <div style="font-size:13px;color:var(--text-1)">${icon("lightbulb", "lg")} <strong style="color:var(--accent-2)">提示</strong>：出题、判分、面试由 LLM 驱动，请先在「设置」配置 API Key 后即可开始考核。</div>
+      <button class="exam-btn" style="padding:7px 16px;font-size:13px" onclick="showSettings()">${icon("settings")} 去设置</button>
     </div>` : ""}
-    ${renderGuideBarHTML()}
-    <div style="display:flex;gap:12px;margin-bottom:20px">
-      <button class="exam-btn primary" onclick="showImportPanel()">📥 导入资料</button>
-      <button class="exam-btn ghost" onclick="showLibrary()">🗂️ 资料目录</button>
-      <button class="exam-btn ghost" onclick="showAssessment()">🧬 能力评估</button>
-      <button class="exam-btn ghost" onclick="showSettings()">⚙️ 设置</button>
+
+    <!-- ② 产品功能 Showcase（静态示例演示，不依赖 LLM/数据） -->
+    <h3 class="section-title" style="margin:0 0 12px">${icon("sparkles", "lg")} 产品功能展示</h3>
+    <div class="showcase-grid">
+      ${showcase}
     </div>
-    ${emptyState}
-    <h3 class="section-title" style="margin:4px 0 14px">🎯 综合考核</h3>
-    <div style="margin:0 0 14px;font-size:13.5px;color:var(--text-1);line-height:1.9;background:rgba(0,229,255,0.04);border:1px solid var(--border);border-radius:10px;padding:12px 15px">
-      🗂️ 想按单个章节分阶段考核，请进「<strong style="color:var(--accent-2)">资料目录</strong>」选择对应章节。<br>
-      💡 聚合全部章节题库，LLM 从题库组卷、检验整体掌握与遗忘；点下方卡片开始。
+
+    <!-- ③ 我的数据 -->
+    <div class="card" style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <h3 class="section-title" style="margin:0">${icon("radar", "lg")} 我的能力画像</h3>
+        <button class="exam-btn ghost" style="padding:5px 12px;font-size:12px" onclick="showAssessment()">查看详情 ${icon("arrow-right")}</button>
+      </div>
+      ${profileKeys.length ? `
+      <div class="home-data">
+        <div class="radar-wrap" style="margin:0"><canvas id="home-profile-canvas" width="420" height="340"></canvas></div>
+        <div>
+          <div style="font-size:12px;color:var(--text-1);margin-bottom:8px;font-family:var(--mono);letter-spacing:1px">RECENT // 最近动态</div>
+          <div class="home-recent">${recentHtml}</div>
+          <div style="margin-top:12px;font-size:11px;color:var(--text-2)">基于 ${state.exams} 次考核 · ${state.imports} 份导入资料</div>
+        </div>
+      </div>` : `
+      <div style="text-align:center;padding:24px 16px">
+        <div style="font-size:34px;margin-bottom:8px;opacity:0.85">🧬</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text-1);margin-bottom:6px">暂无能力画像</div>
+        <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;margin-bottom:14px">完成任意一次考核后，这里将生成你的十维能力雷达图与最近动态。</div>
+        <button class="exam-btn primary" onclick="showQuickStart()">${icon("rocket")} 快速开始第一步</button>
+      </div>`}
     </div>
-    <div class="mode-grid">${cards}</div>
-    ${profileCard}
-    <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap">
-      <button class="exam-btn ghost" onclick="showBadges()">🏅 成就徽章</button>
-      <button class="exam-btn ghost" onclick="showHistory()">📈 学习历史</button>
-      <button class="exam-btn ghost" onclick="showInterviewHistory()">💼 面试记录</button>
-      <button class="exam-btn ghost" onclick="showWrongBook()">📕 错题本</button>
-      <button class="exam-btn ghost" onclick="showDiagnostics()">🔍 诊断日志</button>
-    </div>`);
+
+    <!-- ④ 成长激励条 -->
+    <div class="card home-motivate">
+      <div style="font-size:26px;line-height:1">${curTitle.icon}</div>
+      <div class="mot-prog">
+        <div class="mot-top">
+          <span>Lv.${curIdx + 1} ${curTitle.title} · 画像 ${avg}%</span>
+          <span style="color:var(--accent-2)">${nextTxt}</span>
+        </div>
+        <div class="mot-track"><div class="mot-fill" style="width:${progPct}%"></div></div>
+      </div>
+      <div class="mot-stats">
+        <span>🔥 连击 <b>${state.streak || 0} 天</b></span>
+        <span>🏅 徽章 <b>${unlocked}/${BADGES.length}</b></span>
+        <span>💎 AP <b>${ap}</b></span>
+        <span>🎯 下一步：<b>${nextStep}</b></span>
+      </div>
+    </div>
+  `);
   updateGamestat();   // C1：回到首页时刷新顶栏状态
+}
+
+/* 首页 Showcase 四卡（静态示例演示，Show don't tell） */
+function buildShowcaseHTML() {
+  const theory = `
+    <div class="sc-card" onclick="showExamIntro('theory')">
+      <div class="sc-head">${icon("brain", "lg")}<div><div class="sc-title">理论考核</div><div class="sc-sub">概念 / 原理 / 判断等客观知识题</div></div></div>
+      <div class="sc-preview">
+        <div class="sc-question">${esc(HOME_EXAMPLES.theory.q)}</div>
+        ${HOME_EXAMPLES.theory.opts.map((o, i) => `<div class="sc-opt${i === 0 ? " hot" : ""}">${i === 0 ? "✓ " : ""}${esc(o)}</div>`).join("")}
+      </div>
+      <div class="sc-foot">进入理论考核 ${icon("arrow-right")}</div>
+    </div>`;
+  const practical = `
+    <div class="sc-card" onclick="showExamIntro('practical')">
+      <div class="sc-head">${icon("code", "lg")}<div><div class="sc-title">实战考核</div><div class="sc-sub">代码实战客观题（作用 / 输出 / Bug）</div></div></div>
+      <div class="sc-preview">
+        <div class="sc-code"><span class="hl"># ${esc(HOME_EXAMPLES.code.file)}</span>
+${esc(HOME_EXAMPLES.code.code)}</div>
+        <div class="sc-question" style="margin-bottom:0">${esc(HOME_EXAMPLES.code.q)}</div>
+      </div>
+      <div class="sc-foot">进入实战考核 ${icon("arrow-right")}</div>
+    </div>`;
+  const interview = `
+    <div class="sc-card" onclick="showExamIntro('interview')">
+      <div class="sc-head">${icon("messages-square", "lg")}<div><div class="sc-title">面试考核</div><div class="sc-sub">AI 面试官仿真对话 · 严格追问</div></div></div>
+      <div class="sc-preview">
+        <div class="sc-chat">
+          ${HOME_EXAMPLES.chat.map((c) => `<div class="sc-bubble ${c.role === "me" ? "me" : "iv"}">${esc(c.text)}</div>`).join("")}
+        </div>
+      </div>
+      <div class="sc-foot">进入面试考核 ${icon("arrow-right")}</div>
+    </div>`;
+  const profile = `
+    <div class="sc-card" onclick="showAssessment()">
+      <div class="sc-head">${icon("radar", "lg")}<div><div class="sc-title">能力画像</div><div class="sc-sub">十维雷达 · 岗位匹配 · 等级称号</div></div></div>
+      <div class="sc-preview">
+        <div class="sc-bars">
+          ${HOME_EXAMPLES.bars.map((b) => `<div class="sc-bar"><span class="nm">${esc(b.ab)}</span><div class="track"><div class="fill" style="width:${b.v}%"></div></div><span style="width:30px;text-align:right">${b.v}%</span></div>`).join("")}
+        </div>
+      </div>
+      <div class="sc-foot">查看能力画像 ${icon("arrow-right")}</div>
+    </div>`;
+  return theory + practical + interview + profile;
 }
 
 function saveLLMSettings() {
@@ -554,17 +773,18 @@ function saveLLMSettings() {
   Logger.info("settings.save", "LLM 设置已保存", { hasKey: !!k.value, base: b.value || "(默认)", model: m.value || "deepseek-chat" });
   // 保存后重渲染设置页，顶部摘要显示已保存的模型名 + 地址
   showSettings();
-  showToast(LLM_KEY ? `🤖 已保存：${LLM_MODEL || "deepseek-chat"}` : "⚠️ 已清除 LLM 配置（需配置后才能考核）");
+  showToast(LLM_KEY ? `已保存：${LLM_MODEL || "deepseek-chat"}` : "⚠️ 已清除 LLM 配置（需配置后才能考核）");
 }
 
 /* ===== 设置 ===== */
 function showSettings() {
+  setNavActive("settings");
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">⚙️ 设置</h2>
+    <h2 class="section-title">${icon("settings", "lg")} 设置</h2>
 
     <div class="card" style="margin-bottom:14px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">🤖 LLM 出题引擎（必需）</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">${icon("robot", "lg")} LLM 出题引擎（必需）</div>
       <div style="font-size:12.5px;margin-bottom:12px;padding:9px 12px;border-radius:8px;${LLM_KEY ? "background:rgba(47,214,181,0.08);border:1px solid rgba(47,214,181,0.3);color:#2fd6b5" : "background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text-2)"}">
         ${LLM_KEY
           ? `✅ 当前生效：<strong>${esc(LLM_MODEL || "deepseek-chat")}</strong> @ ${esc(LLM_BASE || "https://api.deepseek.com")}`
@@ -581,11 +801,11 @@ function showSettings() {
           <input type="text" id="llm-model-input" value="${esc(LLM_MODEL)}" placeholder="模型名 (deepseek-chat)" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
         </div>
         <div style="display:flex;gap:9px">
-          <button class="exam-btn primary" onclick="saveLLMSettings()">💾 保存设置</button>
-          <button class="exam-btn ghost" onclick="testLLMConnection()">🔌 测试连接</button>
+          <button class="exam-btn primary" onclick="saveLLMSettings()">${icon("save")} 保存设置</button>
+          <button class="exam-btn ghost" onclick="testLLMConnection()">${icon("zap")} 测试连接</button>
         </div>
         <div style="display:flex;gap:9px;align-items:center;margin-top:2px">
-          <button class="exam-btn ghost" onclick="readLocalLLMEnv()">🔍 从本机环境读取 Key</button>
+          <button class="exam-btn ghost" onclick="readLocalLLMEnv()">${icon("search")} 从本机环境读取 Key</button>
           <span style="font-size:10.5px;color:var(--text-2)">可选：读取本机环境变量（如 DASHSCOPE_API_KEY / DEEPSEEK_API_KEY）自动填入，需手动点「保存」生效。</span>
         </div>
       </div>
@@ -593,12 +813,12 @@ function showSettings() {
     </div>
 
     <div class="card" style="margin-bottom:14px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">👤 用户信息</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">${icon("user", "lg")} 用户信息</div>
       <div style="font-size:12.5px;color:var(--text-1);line-height:2">
         <div>用户名（昵称）</div>
         <div style="display:flex;gap:9px;margin:4px 0 10px">
           <input type="text" id="nickname-input" value="${esc(NICKNAME)}" placeholder="例如：小明 / 阿强" maxlength="20" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
-          <button class="exam-btn primary" onclick="saveNickname()">💾 保存</button>
+          <button class="exam-btn primary" onclick="saveNickname()">${icon("save")} 保存</button>
         </div>
         <div>用户 ID：<span style="font-family:var(--mono);color:var(--accent-2)">${esc(UID)}</span></div>
         <div style="font-size:11.5px;color:var(--text-2)">昵称仅用于界面显示与对话称呼，不影响用户 ID（数据仍按 ID 隔离存储）。</div>
@@ -606,10 +826,10 @@ function showSettings() {
     </div>
 
     <div class="card">
-      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">🗑️ 数据管理</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">${icon("trash-2", "lg")} 数据管理</div>
       <div style="display:flex;gap:9px;flex-wrap:wrap">
         <button class="exam-btn" onclick="clearWrongBook()">清空错题本</button>
-        <button class="exam-btn" onclick="resetAllData()" style="color:#ff6b6b;border-color:#ff6b6b">⚠️ 重置全部数据</button>
+        <button class="exam-btn" onclick="resetAllData()" style="color:#ff6b6b;border-color:#ff6b6b">${icon("alert-triangle")} 重置全部数据</button>
       </div>
       <div style="font-size:11px;color:var(--text-2);margin-top:8px">重置会清空考核记录、徽章、错题本、资料目录、课程库、昵称，以及 LLM 配置，恢复到初始状态。</div>
     </div>`);
@@ -759,10 +979,11 @@ async function resetAllData() {
 
 /* ===== 资料导入 ===== */
 function showImportPanel() {
+  setNavActive("import");
   // LLM 是出题主力，未配置则阻止导入（与「LLM 驱动」一致）
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "导入资料需要 LLM",
       text: "导入时由 LLM 生成考核题（理论客观题 + 代码实战客观题），去重后存入本章题库，并为对应岗位提炼面试参考题。未配置 LLM 无法生成考核题。请先配置 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口）。",
       actions: [
@@ -774,15 +995,15 @@ function showImportPanel() {
   }
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">📥 导入资料</h2>
+    <h2 class="section-title">${icon("upload", "lg")} 导入资料</h2>
     <div class="card">
       <div class="drop-zone" id="import-drop">
         <div class="dz-icon">📁</div>
         <div class="dz-title">拖拽文件或文件夹到这里</div>
         <div class="dz-sub">系统自动识别笔记、代码、数据等文件并出题</div>
         <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
-          <button class="exam-btn primary" onclick="document.getElementById('import-folder').click()">📁 导入文件夹</button>
-          <button class="exam-btn" onclick="document.getElementById('import-file').click()">📄 导入文件</button>
+          <button class="exam-btn primary" onclick="document.getElementById('import-folder').click()">${icon("folder-open")} 导入文件夹</button>
+          <button class="exam-btn" onclick="document.getElementById('import-file').click()">${icon("file-text")} 导入文件</button>
         </div>
         <input type="file" id="import-file" multiple style="display:none" onchange="handleImportFile(this.files)">
         <input type="file" id="import-folder" webkitdirectory directory style="display:none" onchange="handleImportFolder(this.files)">
@@ -926,6 +1147,24 @@ const JSON_FORMAT_HINT = `【输出格式要求（程序会严格校验，不满
 const INTERVIEW_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
 1. 只输出一个 JSON 对象，不要 markdown 代码块（不要用三个反引号包裹），不要任何解释、前后缀文字
 2. 字段名严格按上面要求输出，一个都不能改
+3. 字符串用英文双引号`;
+
+/* 判分 / 组卷 / job 出题场景的输出格式约束（数据统一方案 P1：6 处直接 fetch 迁移 llmJSON 后统一生效） */
+const GRADE_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象：{"score": 0-100 的整数, "feedback": "一两句反馈（亮点+不足+改进建议）"}
+2. 不要 markdown 代码块，不要任何解释、前后缀文字
+3. 字符串用英文双引号`;
+const FILL_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象：{"correct": true 或 false, "reason": "一句话判定理由"}
+2. 不要 markdown 代码块，不要任何解释、前后缀文字
+3. 字符串用英文双引号`;
+const PICK_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象：{"picks": [编号数组]}，编号取自候选题列表行首数字
+2. 不要 markdown 代码块，不要任何解释、前后缀文字
+3. 字符串用英文双引号`;
+const JOB_JSON_HINT = `【输出格式要求（程序会严格校验，不满足会要求你重新输出）】
+1. 只输出一个 JSON 对象：{"jobName": "岗位名", "questions": [题目数组]}
+2. 不要 markdown 代码块，不要任何解释、前后缀文字
 3. 字符串用英文双引号`;
 
 async function llmJSON(opts) {
@@ -1075,18 +1314,18 @@ async function browserLLMGenerate(course, part, count) {
   const model = LLM_MODEL || "deepseek-chat";
 
   // 课程素材摘要（用于生成题目）
-  const concepts = (course.concepts || []).slice(0, 10)
-    .map((c) => `- ${c.name}: ${(c.summary || "").slice(0, 80)}`).join("\n") || "（无概念表）";
-  const chapters = (course.chapters || []).slice(0, 12)
-    .map((ch) => `- 第${ch.index}章 ${ch.title}: ${(ch.summary || "").slice(0, 60)}`).join("\n") || "（无章节）";
-  const difficulties = (course.difficulties || []).slice(0, 5)
-    .map((d) => `- ${d.title}`).join("\n") || "（无难点）";
+  // 数据统一方案 L1：素材统一走 sanitizeMaterial（长度配置集中在 DataIO.INPUT_LIMITS）
+  const concepts = DataIO.sanitizeMaterial((course.concepts || []).map((c) => ({ key: "concept", title: c.name, text: c.summary })), { emptyText: "（无概念表）" });
+  const chapters = DataIO.sanitizeMaterial((course.chapters || []).map((ch) => ({ key: "chapter", title: "第" + ch.index + "章 " + ch.title, text: ch.summary })), { emptyText: "（无章节）" });
+  const difficulties = DataIO.sanitizeMaterial((course.difficulties || []).map((d) => ({ key: "difficulty", title: d.title })), { emptyText: "（无难点）" });
   // 代码文件内容（出题素材：按文件名排序，利于 LLM 识别递进/对比关系，基于真实代码出实战题）
-  const codeFiles = (course.materials || [])
-    .filter((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)))
-    .sort((a, b) => (a.file || a.path || "").localeCompare(b.file || b.path || ""))
-    .slice(0, 8)
-    .map((m, i) => `[文件${i + 1}] ${m.file || m.path}（${m.lines || "?"} 行）\n${(m.preview || "").slice(0, 400)}`).join("\n\n");
+  const codeFiles = DataIO.sanitizeMaterial(
+    (course.materials || [])
+      .filter((m) => m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file)))
+      .sort((a, b) => (a.file || a.path || "").localeCompare(b.file || b.path || ""))
+      .map((m) => ({ key: "codeFile", title: "[" + m.file + "（" + (m.lines || "?") + " 行）]", text: m.preview })),
+    { emptyText: "" }
+  );
 
   // 有代码文件才要求实战题：纯笔记目录（无代码素材）跳过实战硬校验，避免「无代码却要代码题」结构性必败
   const hasCode = codeFiles.trim().length > 0;
@@ -1120,23 +1359,22 @@ async function browserLLMGenerate(course, part, count) {
 async function generateJobQuestions(course) {
   if (!LLM_KEY) return null;
   try {
-    const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-    const model = LLM_MODEL || "deepseek-chat";
     const jobNames = (JOB_KNOWLEDGE || []).map((j) => j.name);
     if (!jobNames.length) return null;
     const prompt = buildJobQuestionPrompt(course, jobNames);
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0.7, max_tokens: 800, response_format: { type: "json_object" } }),
+    // 数据统一方案 P1：迁移到 llmJSON 统一调用器
+    const parsed = await llmJSON({
+      system: SYSTEM.examiner,
+      prompt,
+      formatHint: JOB_JSON_HINT,
+      expect: "object",
+      part: "job",
+      maxTokens: 800,
+      temperature: 0.7,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS.job),
     });
-    if (!res.ok) return null;
-    const content = (await res.json()).choices[0].message.content;
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.jobName && Array.isArray(parsed.questions) && parsed.questions.length) {
-      return { jobName: parsed.jobName, questions: parsed.questions };
-    }
-    return null;
+    return { jobName: parsed.jobName, questions: parsed.questions };
   } catch (e) {
     return null;
   }
@@ -1163,8 +1401,6 @@ function setImportProgress(pct, icon, text, detail) {
 
 async function llmExamQuestions(courses, mode, count = 4) {
   if (!LLM_KEY) return [];
-  const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
 
   // 汇总所有目录的素材
   const concepts = [];
@@ -1175,43 +1411,32 @@ async function llmExamQuestions(courses, mode, count = 4) {
     for (const ch of (c.chapters || [])) chapters.push(`${c.title}·第${ch.index}章 ${ch.title}: ${(ch.summary || "").slice(0, 40)}`);
     for (const m of (c.materials || [])) {
       if (m.type === "code" || (m.file && /\.(py|ipynb|js|ts|java)$/i.test(m.file))) {
-        codeFiles.push(`【${m.file || m.path}】\n${(m.preview || "").slice(0, 150)}`);
+        codeFiles.push({ key: "codePreview", title: "[" + (m.file || m.path) + "]", text: m.preview });
       }
     }
   }
-  const conceptTxt = concepts.slice(0, 12).join("\n") || "（无概念表）";
-  const chapterTxt = chapters.slice(0, 12).join("\n") || "（无章节）";
-  const codeTxt = codeFiles.slice(0, 6).join("\n") || "";
+  // 数据统一方案 L1：素材统一走 sanitizeMaterial（长度配置集中在 DataIO.INPUT_LIMITS）
+  const conceptTxt = DataIO.sanitizeMaterial(concepts.map((s) => ({ key: "conceptBrief", text: s })), { emptyText: "（无概念表）" });
+  const chapterTxt = DataIO.sanitizeMaterial(chapters.map((s) => ({ key: "chapterBrief", text: s })), { emptyText: "（无章节）" });
+  const codeTxt = DataIO.sanitizeMaterial(codeFiles, { emptyText: "" });
 
   const prompt = buildExamPrompt(conceptTxt, chapterTxt, mode, count, ABILITIES.join("、"), codeTxt, flaggedQuestionTxt());
 
-  const res = await fetch(base + "/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: SYSTEM.examiner }, { role: "user", content: prompt }],
-      temperature: 0.8, max_tokens: 3000, response_format: { type: "json_object" },
-    }),
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器（考核动态出题，minCount 0=宁缺毋滥，失败返回空走主流程兜底）
+  const qs = await llmJSON({
+    system: SYSTEM.examiner,
+    prompt,
+    part: "exam-dynamic",
+    maxTokens: 3000,
+    temperature: 0.8,
+    minCount: 0,
   });
-  if (!res.ok) {
-    if (res.status === 400) {
-      const res2 = await fetch(base + "/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM.examiner }, { role: "user", content: prompt }], temperature: 0.8, max_tokens: 3000 }),
-      });
-      if (res2.ok) return extractLLMQuestions(await res2.json());
-    }
-    return [];
-  }
-  const qs = extractLLMQuestions(await res.json());
   // 补全字段（含 correctIndex 归一化 + ability 白名单），维度强制为考核模式
   for (const q of qs) {
     normalizeLLMQuestion(q);
     q.dimension = mode;
     q.dynamic = true;
-    q.source = "🤖 LLM 动态";
+    q.source = "LLM 动态";
   }
   return qs;
 }
@@ -1224,7 +1449,7 @@ async function handleImportFileList(mdFiles) {
   // 兜底：未配置 LLM 不导入（showImportPanel 已拦截，这里防拖拽等入口绕过）
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "导入资料需要 LLM",
       text: "导入时由 LLM 出题，请先配置 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口）。",
       actions: [
@@ -1274,7 +1499,7 @@ async function handleImportFileList(mdFiles) {
 
     // 若用户配置了 LLM，浏览器直连 API 生成考核题（主力出题，key 不出浏览器）
     if (LLM_KEY && data.course) {
-      setImportProgress(10, "🤖", "LLM 正在生成题目", "理论 + 实战并行 · 浏览器直连 · Key 不出浏览器");
+      setImportProgress(10, icon("robot"), "LLM 正在生成题目", "理论 + 实战并行 · 浏览器直连 · Key 不出浏览器");
       // 伪进度：按 10% 一档跳（10→20→…→90），每 6 tick（约 3.6 秒）跳一档，匹配生成时长
       let impPct = 10;
       let stepTicks = 0;
@@ -1390,8 +1615,8 @@ async function handleImportFileList(mdFiles) {
           if (pracRes !== null) { if (!pracRes || !pracRes.length) pracStuck = true; else if (!hangQ(pracRes)) pracStuck = true; }
         }
         // 数量校验（宁缺毋滥）：收纳实际生成的全部题目；理论 <8 / 实战 <5 时按钮置灰 + 提示补出题或重新导入
-        theoryWarn = countTheory() < 8 ? "理论题仅 " + countTheory() + " 道（不足 8，理论考核按钮已置灰），可点「🤖 补出题」或重新导入" : "";
-        pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「🤖 补出题」补足" : "";
+        theoryWarn = countTheory() < 8 ? "理论题仅 " + countTheory() + " 道（不足 8，理论考核按钮已置灰），可点「补出题」或重新导入" : "";
+        pracWarn = hasCode && countPrac() < 5 ? "实战题仅 " + countPrac() + " 道（不足 5），可点「补出题」补足" : "";
         const stElP2 = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-state`) : null;
         const lblP = partsBox ? partsBox.querySelector(`.imp-part[data-part="practical"] .imp-part-label`) : null;
         if (lblP) lblP.textContent = "完成 " + countPrac() + " 道";
@@ -1426,7 +1651,7 @@ async function handleImportFileList(mdFiles) {
           ? "无法连接 API 服务（网络错误）"
           : msg;
         status.className = "parse-status err";
-        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。目录已保留（未删除），可重新导入或点「🤖 补出题」修复。`;
+        status.innerHTML = `⚠️ 导入失败，原因是：${esc(reason)}。目录已保留（未删除），可重新导入或点「补出题」修复。`;
         return;   // 阻止后续成功流程（COURSE 赋值 / 发 XP / status=ok 覆盖失败文案）
       }
     }
@@ -1499,10 +1724,11 @@ let interviewBusyCount = 0;  // 面试竞态守卫：>0 表示面试官正在处
 let interviewCourses = [];   // 面试聚合的目录课程（切目录模型）
 
 async function startInterview() {
+  setNavActive("interview");
   // 面试考核强制要求 LLM
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "面试考核需要 LLM",
       text: "面试考核由 AI 面试官动态出题、追问并评分，需要先配置 LLM API Key。你可以在设置中填写（支持 DeepSeek 官方或中转站），Key 仅保存在本机浏览器。",
       actions: [
@@ -1542,7 +1768,7 @@ function renderJobSelect() {
     : `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--warn)">⚠️ 岗位知识库加载失败，请重启应用后重试。</div>`;
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 退出面试</button>
-    <h2 class="section-title">💼 选择面试岗位</h2>
+    <h2 class="section-title">${icon("briefcase", "lg")} 选择面试岗位</h2>
     <div style="font-size:12.5px;color:var(--text-2);margin-bottom:16px;line-height:1.8">选择你要面试的岗位，AI 面试官将加载该岗位的知识库（职责 · 核心技能 · 考察维度 · 知识图谱要点 · 追问方向），围绕岗位做多维度严格面试。</div>
     <div class="job-grid">
       ${jobsHtml}
@@ -1553,7 +1779,7 @@ function startJobInterview(jobId) {
   // 防御性检查：面试强制要求 LLM（与 startInterview 一致，防未来新增入口绕过）
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "面试考核需要 LLM",
       text: "面试考核由 AI 面试官动态出题、追问并评分，需要先配置 LLM API Key。你可以在设置中填写（支持 DeepSeek 官方或中转站），Key 仅保存在本机浏览器。",
       actions: [
@@ -1615,19 +1841,18 @@ function buildInterviewContext() {
     const target = Math.min(arr.length, Math.max(minCap, Math.ceil(arr.length * 0.5)), cap);
     return shuffle(arr).slice(0, target);
   };
-  const conceptTxt = sample(concepts, 30)
-    .map((c) => `- ${c.name}：${(c.summary || "").slice(0, 60)}`).join("\n") || "（无概念表）";
-  const chapterTxt = sample(chapters, 24)
-    .map((ch) => `- 第${ch.index}章 ${ch.title}：${(ch.summary || "").slice(0, 50)}`).join("\n") || "（无章节）";
-  const diffTxt = sample(difficulties, 16)
-    .map((d) => `- ${d.title}：${(d.detail || "").slice(0, 60)}`).join("\n") || "（无难点）";
+  // 数据统一方案 L1：面试上下文素材统一走 sanitizeMaterial（长度/条数集中在 DataIO.INPUT_LIMITS）
+  const conceptTxt = DataIO.sanitizeMaterial(sample(concepts, 30).map((c) => ({ key: "ivConcept", title: c.name, text: c.summary })), { emptyText: "（无概念表）" });
+  const chapterTxt = DataIO.sanitizeMaterial(sample(chapters, 24).map((ch) => ({ key: "ivChapter", title: "第" + ch.index + "章 " + ch.title, text: ch.summary })), { emptyText: "（无章节）" });
+  const diffTxt = DataIO.sanitizeMaterial(sample(difficulties, 16).map((d) => ({ key: "ivDiff", title: d.title, text: d.detail })), { emptyText: "（无难点）" });
   const quizByDim = {};
   for (const q of quiz) {
     const d = q.dimension || inferDimension(q);
     (quizByDim[d] = quizByDim[d] || []).push(q);
   }
+  const cleanSeg = (seg) => DataIO.sanitizeMaterial([seg], { emptyText: "" }).replace(/^- /, "");
   const quizTxt = Object.entries(quizByDim).map(([d, qs]) =>
-    `【${d}】${sample(qs, 10, 4).map((q) => q.question.replace(/【[^】]*】/g, "").slice(0, 50)).join("；")}`
+    `【${d}】${sample(qs, 10, 4).map((q) => cleanSeg({ key: "ivQuiz", text: q.question.replace(/【[^】]*】/g, "") })).join("；")}`
   ).join("\n") || "（题库为空）";
   const abilityTxt = Object.keys(abilityProfilePct() || {}).join("、") || "（无）";
   return {
@@ -1703,27 +1928,12 @@ function showInterviewLoading(job, maxRounds, dims) {
     } else {
       api.setStatus("INTERVIEW READY");
       api.setProgress(100);
-      setTimeout(() => renderInterviewIntro(), 520);
+      setTimeout(() => renderInterviewChat(), 520);   // 直接进面试间（旧 renderInterviewIntro 死函数已删）
     }
   };
   step();
 }
 
-function renderInterviewIntro() {
-  const st = interviewState;
-  render(null, `
-    <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 退出面试</button>
-    <div class="card" style="text-align:center;padding:36px 28px">
-      <div style="font-size:40px;margin-bottom:12px">🤖</div>
-      <h2 style="font-size:20px;font-weight:800;color:var(--accent);margin-bottom:8px">${esc(st.job.name)} · 仿真面试</h2>
-      <div style="font-size:13px;color:var(--text-1);line-height:1.8;margin-bottom:6px">面试官将围绕以下维度严格考察：</div>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:18px">
-        ${st.dims.map((d) => `<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);color:#00e5ff">${esc(d)}</span>`).join("")}
-      </div>
-      <div style="font-size:12.5px;color:var(--text-2);margin-bottom:20px">约 ${st.maxRounds} 轮提问 · 面试官会结合岗位要求、你的资料与生产环境实际动态出题，题型多样 · 请认真作答</div>
-      <button class="exam-btn primary" style="font-size:16px;padding:12px 32px" onclick="renderInterviewChat()">🚀 进入面试间</button>
-    </div>`);
-}
 
 /* ===== 仿真面试聊天窗口 ===== */
 function renderInterviewChat() {
@@ -1740,7 +1950,7 @@ function renderInterviewChat() {
   }, `
     <div class="interview-shell">
       <div class="interview-head">
-        <div class="iv-avatar">🤖</div>
+        <div class="iv-avatar">${icon("robot")}</div>
         <div class="iv-info">
           <div class="iv-name">${esc(st.job.name)} · 面试官</div>
           <div class="iv-meta">考察维度：${esc(st.dims.join(" / "))}</div>
@@ -1792,7 +2002,7 @@ function renderInterviewMessages() {
   const st = interviewState;
   return (st.messages || []).map((m) => {
     const isMe = m.role === "candidate";
-    const avatar = isMe ? "👤" : "🤖";
+    const avatar = isMe ? icon("user") : icon("robot");
     const name = isMe ? displayName() : (st.job.name + " · 面试官");
     // 舞台指示：优先用入队时固化的，否则即时算（覆盖开场白等直接 push 的消息）
     const direction = m.role === "interviewer" ? (m.stage || pickStageDirection(m.meta)) : "";
@@ -1880,7 +2090,7 @@ function appendInterviewMessage(role, text, meta) {
   if (body) {
     const wrap = document.createElement("div");
     const isMe = role === "candidate";
-    const avatar = isMe ? "👤" : "🤖";
+    const avatar = isMe ? icon("user") : icon("robot");
     wrap.innerHTML = `
       <div class="iv-msg ${isMe ? "me" : ""}">
         <div class="iv-bubble-avatar">${avatar}</div>
@@ -1901,7 +2111,7 @@ function showInterviewTyping(show) {
   const slot = $("#iv-typing-slot");
   if (!slot) return;
   slot.innerHTML = show
-    ? `<div class="iv-msg iv-typing"><div class="iv-bubble-avatar">🤖</div><div class="dots"><span></span><span></span><span></span></div></div>`
+    ? `<div class="iv-msg iv-typing"><div class="iv-bubble-avatar">${icon("robot")}</div><div class="dots"><span></span><span></span><span></span></div></div>`
     : "";
   scrollInterviewToBottom();
 }
@@ -1925,7 +2135,7 @@ const InterviewGraph = {
           expect: "object",
           maxTokens: 800,
           part: "interview-ask",
-          validateObj: (o) => (o && o.question ? null : "缺少 question 字段"),
+          validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS["interview-ask"]),
         });
         showInterviewTyping(false);
         st.current = askResult;
@@ -1995,6 +2205,7 @@ const InterviewGraph = {
           expect: "object",
           maxTokens: 700,
           part: "interview-judge",
+          validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS["interview-judge"]),
         });
         showInterviewTyping(false);
         st._followup = judgeResult.followup || "";
@@ -2097,7 +2308,7 @@ function appendInterviewOptions(options) {
   const wrap = document.createElement("div");
   wrap.className = "iv-msg";
   wrap.innerHTML = `
-    <div class="iv-bubble-avatar">🤖</div>
+    <div class="iv-bubble-avatar">${icon("robot")}</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;padding-left:44px">
       ${options.map((o, i) => `<button class="exam-btn ghost" style="font-size:13px;padding:8px 14px" onclick="chooseInterviewOption(${i})">${String.fromCharCode(65 + i)}. ${esc(o.replace(/^[A-D][.、)]\s*/, ""))}</button>`).join("")}
     </div>`;
@@ -2175,6 +2386,7 @@ async function finishInterview() {
       maxTokens: 2000,
       temperature: 0.3,
       part: "interview-score",
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS["interview-score"]),
     });
     Logger.info("interview.score", "面试评分完成", { rounds: st.history.length, totalScore: scoreResult && scoreResult.totalScore });
     renderInterviewResult(scoreResult);
@@ -2344,11 +2556,12 @@ function showExamLoading(mode) {
 }
 
 function startExam(mode) {
+  setNavActive(mode === "practical" ? "practical" : "theory");
   // 理论/实战考核都需要 LLM（出题 + 打标签 + 判分）
   if (!LLM_KEY) {
     const modeName = mode === "theory" ? "理论" : "实战";
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: `${modeName}考核需要 LLM`,
       text: `${modeName}考核的出题、题目能力打标签、语义判分都由 LLM 完成，需要先配置 API Key（支持 DeepSeek 官方或中转站）。Key 仅保存在本机浏览器，浏览器直连 API，不会上传服务器。`,
       actions: [
@@ -2473,7 +2686,7 @@ function renderQuestion() {
   const diffStars = "★".repeat(Math.max(1, Math.min(5, diff))) + "☆".repeat(Math.max(0, 5 - Math.max(1, Math.min(5, diff))));
   // 知识点/能力维度 + 来源
   const ability = q.ability || inferDimension(q);
-  const sourceLabel = q.dynamic ? "🤖 LLM 动态" : (q.source && q.source !== "current" ? "📚 " + q.source : "📚 题库");
+  const sourceLabel = q.dynamic ? "LLM 动态" : (q.source && q.source !== "current" ? "📚 " + q.source : "📚 题库");
 
   render(() => {
     $("#exam-view").scrollTop = 0;
@@ -2486,7 +2699,7 @@ function renderQuestion() {
     <div class="exam-question-head">
       <div class="exam-q-meta">${TYPE_LABEL[q.type] || q.type} · 难度 ${diffStars}</div>
       <span class="exam-q-type ${typeCls}">${TYPE_LABEL[q.type] || q.type}</span>
-      ${q.dynamic ? '<span class="exam-q-type" style="background:rgba(255,61,240,0.12);color:#ff3df0">🤖 LLM 动态</span>' : ""}
+      ${q.dynamic ? '<span class="exam-q-type" style="background:rgba(255,61,240,0.12);color:#ff3df0">${icon("robot")} LLM 动态</span>' : ""}
       ${q.interview ? '<span class="exam-q-type" style="background:rgba(255,184,77,0.15);color:#ffb84d">💼 面试</span>' : ""}
     </div>
     <div class="exam-q-tags">
@@ -2774,31 +2987,28 @@ async function llmGradeCode(q, userAns) {
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = LLM_MODEL || "deepseek-chat";
   const prompt = buildCodeGradePrompt(q, p, userAns);
-  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">🤖 LLM 正在判分…</div>`;
+  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">${icon("robot")} LLM 正在判分…</div>`;
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器（格式约束/反馈重出/日志/空响应软处理）
   try {
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: SYSTEM.codeGrader }, { role: "user", content: prompt }],
-        temperature: 0.2, max_tokens: 500, response_format: { type: "json_object" },
-      }),
+    const parsed = await llmJSON({
+      system: SYSTEM.codeGrader,
+      prompt,
+      formatHint: GRADE_JSON_HINT,
+      expect: "object",
+      part: "grade-code",
+      maxTokens: 500,
+      temperature: 0.2,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS.grade),
     });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    finishCodeGrade(await res.json(), box, q);
+    finishCodeGrade(parsed, box, q);
   } catch (e) {
     box.innerHTML = `<div style="font-size:12.5px;color:var(--warn)">⚠️ LLM 判分失败（${e.message}）。<br><div style="margin-top:6px;color:var(--text-1)">参考答案：<br><pre style="white-space:pre-wrap;font-family:var(--mono);font-size:12px;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px">${esc((p.referenceAnswer || q.answer || "").slice(0, 600))}</pre></div></div>`;
   }
 }
 
-function finishCodeGrade(data, box, q) {
-  const content = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
-  let parsed = null;
-  try { parsed = JSON.parse(content); } catch (e) {
-    const m = content.match(/\{[\s\S]*\}/);
-    if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-  }
+function finishCodeGrade(parsed, box, q) {
+  // P1：parsed 已是 llmJSON 解析校验后的对象（不再从 data.choices 提取）
   const p = q.practical || {};
   if (!parsed || typeof parsed.score !== "number") {
     box.innerHTML = `<div style="font-size:12.5px;color:var(--warn)">⚠️ 无法解析评分。<br><div style="margin-top:6px;color:var(--text-1)">参考答案：<br><pre style="white-space:pre-wrap;font-family:var(--mono);font-size:12px;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px">${esc((p.referenceAnswer || q.answer || "").slice(0, 600))}</pre></div></div>`;
@@ -2809,7 +3019,7 @@ function finishCodeGrade(data, box, q) {
   const ok = score >= 60;
   box.innerHTML = `
     <div style="padding:12px 14px;border-radius:10px;background:${ok ? "rgba(47,214,181,0.08)" : "rgba(255,107,107,0.08)"};border:1px solid ${ok ? "rgba(47,214,181,0.35)" : "rgba(255,107,107,0.35)"}">
-      <div style="font-size:14px;font-weight:800;color:${ok ? "#2fd6b5" : "#ff6b6b"}">🤖 LLM 评分：${score} 分 ${ok ? "✅ 通过" : "❌ 未通过"}</div>
+      <div style="font-size:14px;font-weight:800;color:${ok ? "#2fd6b5" : "#ff6b6b"}">${icon("robot")} LLM 评分：${score} 分 ${ok ? "✅ 通过" : "❌ 未通过"}</div>
       ${fb ? `<div style="font-size:12.5px;color:var(--text-1);margin-top:6px;line-height:1.7">💬 ${esc(fb)}</div>` : ""}
       <div style="font-size:11.5px;color:var(--text-2);margin-top:8px">参考实现：<br><pre style="white-space:pre-wrap;font-family:var(--mono);font-size:12px;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;color:var(--text-1)">${esc((p.referenceAnswer || q.answer || "").slice(0, 600))}</pre></div>
     </div>`;
@@ -2832,22 +3042,22 @@ function showReadingGradeBox(q, userAns) {
 async function llmGradeReading(q, userAns) {
   const box = $("#reading-grade-box");
   if (!box) return;
-  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">🤖 LLM 正在判定…</div>`;
-  const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">${icon("robot")} LLM 正在判定…</div>`;
   const prompt = buildReadingGradePrompt(q, userAns);
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器
   try {
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: SYSTEM.readingGrader }, { role: "user", content: prompt }],
-        temperature: 0.2, max_tokens: 400, response_format: { type: "json_object" },
-      }),
+    const parsed = await llmJSON({
+      system: SYSTEM.readingGrader,
+      prompt,
+      formatHint: GRADE_JSON_HINT,
+      expect: "object",
+      part: "grade-reading",
+      maxTokens: 400,
+      temperature: 0.2,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS.grade),
     });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    finishLLMGrade(await res.json(), box);
+    finishLLMGrade(parsed, box);
   } catch (e) {
     box.innerHTML = `<div style="font-size:12.5px;color:var(--warn)">⚠️ LLM 判定失败（${e.message}），可自评：<button class="exam-btn green" style="padding:6px 12px" onclick="selfAssess(true)">👍 讲通了</button> <button class="exam-btn orange" style="padding:6px 12px" onclick="selfAssess(false)">🔄 没讲顺</button></div>`;
   }
@@ -2863,30 +3073,30 @@ function showFillBlankGradeBox(q, userAns) {
   $(".exam-nav-btns").insertBefore(fb, $(".exam-nav-btns").firstChild);
   // BUG-3 修复：判分期间禁用提交按钮，防止用户判分中推进下一题
   const fbSb = $("#submit-btn");
-  if (fbSb) { fbSb.disabled = true; fbSb.textContent = "🤖 判分中…"; }
+  if (fbSb) { fbSb.disabled = true; fbSb.textContent = "判分中…"; }
   llmGradeFillBlank(q, userAns);
 }
 
 async function llmGradeFillBlank(q, userAns) {
   const box = $("#fill-grade-box");
   if (!box) return;
-  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">🤖 LLM 正在判定…</div>`;
-  const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">${icon("robot")} LLM 正在判定…</div>`;
   const accepted = (q.fillAnswers || [q.correctAnswer]).join(" / ");
   const prompt = buildFillBlankPrompt(q, userAns, accepted);
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器
   try {
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: SYSTEM.fillJudge }, { role: "user", content: prompt }],
-        temperature: 0, max_tokens: 200, response_format: { type: "json_object" },
-      }),
+    const parsed = await llmJSON({
+      system: SYSTEM.fillJudge,
+      prompt,
+      formatHint: FILL_JSON_HINT,
+      expect: "object",
+      part: "grade-fill",
+      maxTokens: 200,
+      temperature: 0,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS["grade-fill"]),
     });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    finishFillBlankGrade(await res.json(), box, q, userAns);
+    finishFillBlankGrade(parsed, box, q, userAns);
   } catch (e) {
     // 失败降级为模糊匹配
     const judged = judgeAnswer(q, userAns);
@@ -2895,18 +3105,13 @@ async function llmGradeFillBlank(q, userAns) {
   }
 }
 
-function finishFillBlankGrade(data, box, q, userAns) {
-  const content = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
-  let parsed = null;
-  try { parsed = JSON.parse(content); } catch (e) {
-    const m = content.match(/\{[\s\S]*\}/);
-    if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-  }
+function finishFillBlankGrade(parsed, box, q, userAns) {
+  // P1：parsed 已是 llmJSON 解析校验后的对象
   const correct = !!(parsed && parsed.correct);
   const reason = (parsed && parsed.reason) || "";
   const accepted = (q.fillAnswers || [q.correctAnswer]).join(" / ");
   box.innerHTML = `<div style="padding:12px 14px;border-radius:10px;background:${correct ? "rgba(47,214,181,0.08)" : "rgba(255,107,107,0.08)"};border:1px solid ${correct ? "rgba(47,214,181,0.35)" : "rgba(255,107,107,0.35)"}">
-    <div style="font-size:14px;font-weight:800;color:${correct ? "#2fd6b5" : "#ff6b6b"}">🤖 LLM 判定：${correct ? "✅ 正确" : "❌ 错误"}</div>
+    <div style="font-size:14px;font-weight:800;color:${correct ? "#2fd6b5" : "#ff6b6b"}">${icon("robot")} LLM 判定：${correct ? "✅ 正确" : "❌ 错误"}</div>
     ${reason ? `<div style="font-size:12.5px;color:var(--text-1);margin-top:6px;line-height:1.7">💬 ${esc(reason)}</div>` : ""}
     <div style="font-size:11.5px;color:var(--text-2);margin-top:6px">标准答案：${esc(accepted)}</div>
   </div>`;
@@ -2949,7 +3154,7 @@ function showEssayFeedback(q) {
   fb.innerHTML = `📖 <strong>参考答案：</strong><br>${renderMdSimple(q.answer)}${q.explanation ? "<br><br>📝 " + esc(q.explanation) : ""}
     <div id="essay-grade-box"></div>
     <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
-      ${LLM_KEY ? `<button class="exam-btn primary" style="padding:8px 18px;font-size:15px" onclick="llmGradeEssay()">🤖 LLM 自动批改</button>` : ""}
+      ${LLM_KEY ? `<button class="exam-btn primary" style="padding:8px 18px;font-size:15px" onclick="llmGradeEssay()">${icon("robot")} LLM 自动批改</button>` : ""}
       <button class="exam-btn green" style="padding:8px 18px;font-size:15px" onclick="selfAssess(true)">👍 我讲通了</button>
       <button class="exam-btn orange" style="padding:8px 18px;font-size:15px" onclick="selfAssess(false)">🔄 没讲顺，记入错题</button>
     </div>`;
@@ -3012,47 +3217,29 @@ async function llmGradeEssay() {
   if (!LLM_KEY) { showToast("⚠️ 未配置 LLM，请到设置页填写 API Key"); return; }
   const box = $("#essay-grade-box");
   if (!box) return;
-  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">🤖 LLM 正在批改…</div>`;
-  const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">${icon("robot")} LLM 正在批改…</div>`;
   const prompt = buildEssayGradePrompt(q, userAns);
+  // 数据统一方案 P1：迁移到 llmJSON 统一调用器（含 400 response_format 降级重试，不再手写）
   try {
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: SYSTEM.essayGrader }, { role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 400,
-        response_format: { type: "json_object" },
-      }),
+    const parsed = await llmJSON({
+      system: SYSTEM.essayGrader,
+      prompt,
+      formatHint: GRADE_JSON_HINT,
+      expect: "object",
+      part: "grade-essay",
+      maxTokens: 400,
+      temperature: 0.2,
+      maxRetries: 2,
+      validateObj: (o) => DataSchema.validateBySchema(o, DataSchema.OBJECT_SCHEMAS.grade),
     });
-    if (!res.ok) {
-      // 中转站可能不支持 response_format，重试一次
-      if (res.status === 400) {
-        const res2 = await fetch(base + "/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY },
-          body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM.essayGrader }, { role: "user", content: prompt }], temperature: 0.2, max_tokens: 400 }),
-        });
-        if (res2.ok) return finishLLMGrade(await res2.json(), box);
-      }
-      throw new Error(`API ${res.status}`);
-    }
-    finishLLMGrade(await res.json(), box);
+    finishLLMGrade(parsed, box);
   } catch (e) {
     box.innerHTML = `<div style="font-size:12.5px;color:var(--warn)">⚠️ LLM 批改失败（${e.message}），可改用下方自评。</div>`;
   }
 }
 
-function finishLLMGrade(data, box) {
-  const content = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
-  let parsed = null;
-  try { parsed = JSON.parse(content); } catch (e) {
-    const m = content.match(/\{[\s\S]*\}/);
-    if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} }
-  }
+function finishLLMGrade(parsed, box) {
+  // P1：parsed 已是 llmJSON 解析校验后的对象
   if (!parsed || typeof parsed.score !== "number") {
     box.innerHTML = `<div style="font-size:12.5px;color:var(--warn)">⚠️ 无法解析评分，可改用下方自评。</div>`;
     return;
@@ -3063,7 +3250,7 @@ function finishLLMGrade(data, box) {
   box.innerHTML = `
     <div style="margin-top:10px;padding:12px 14px;border-radius:10px;background:${ok ? "rgba(47,214,181,0.08)" : "rgba(255,107,107,0.08)"};border:1px solid ${ok ? "rgba(47,214,181,0.35)" : "rgba(255,107,107,0.35)"}">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:14px;font-weight:800;color:${ok ? "#2fd6b5" : "#ff6b6b"}">🤖 LLM 评分：${score} 分 ${ok ? "✅ 通过" : "❌ 未通过"}</span>
+        <span style="font-size:14px;font-weight:800;color:${ok ? "#2fd6b5" : "#ff6b6b"}">${icon("robot")} LLM 评分：${score} 分 ${ok ? "✅ 通过" : "❌ 未通过"}</span>
       </div>
       ${fb ? `<div style="font-size:12.5px;color:var(--text-1);margin-top:6px;line-height:1.7">💬 ${esc(fb)}</div>` : ""}
     </div>`;
@@ -3236,7 +3423,7 @@ function showResult() {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <h3 class="section-title" style="margin-top:0">🧬 综合能力画像</h3>
+      <h3 class="section-title" style="margin-top:0">${icon("radar", "lg")} 综合能力画像</h3>
       <div style="text-align:center;padding:6px 0 4px">
         <div style="font-size:23px;font-weight:900;font-family:var(--cyber);color:${assess.color};letter-spacing:1px">${assess.icon} ${assess.level}</div>
         <div style="font-size:12.5px;color:var(--text-2);margin-top:6px">${assess.desc}</div>
@@ -3248,19 +3435,19 @@ function showResult() {
 
     <div class="exam-two-col">
       <div class="card" style="margin-top:0">
-        <h3 class="section-title" style="margin-top:0">📈 增长点</h3>
+        <h3 class="section-title" style="margin-top:0">${icon("trending-up", "lg")} 增长点</h3>
         ${growth.up.length ? `<div style="font-size:12.5px;color:#00e5ff;line-height:2">${growth.up.map((u) => "✅ " + u).join("<br>")}</div>` : "<div style='font-size:13.5px;color:var(--text-2)'>本次暂无明显增长点，继续加油！</div>"}
         <h3 class="section-title" style="margin-top:18px">🔻 缺失点（需加强）</h3>
         ${growth.down.length ? `<div style="font-size:12.5px;color:#ff6b6b;line-height:2">${growth.down.map((d) => "❌ " + d).join("<br>")}</div>` : "<div style='font-size:13.5px;color:var(--text-2)'>本次无重大缺失，保持！</div>"}
       </div>
 
       <div class="card" style="margin-top:0">
-        <h3 class="section-title" style="margin-top:0">💼 岗位匹配建议</h3>
+        <h3 class="section-title" style="margin-top:0">${icon("briefcase", "lg")} 岗位匹配建议</h3>
         <div style="display:flex;flex-direction:column;gap:10px">${jobs}</div>
       </div>
     </div>
 
-    ${wrongList ? `<div class="exam-review-list"><h3 class="section-title">📕 错题回顾</h3>${wrongList}</div>` : ""}
+    ${wrongList ? `<div class="exam-review-list"><h3 class="section-title">${icon("bookmark", "lg")} 错题回顾</h3>${wrongList}</div>` : ""}
 
     <div style="margin-top:22px;display:flex;gap:12px;justify-content:center">
       ${examMode === "review"
@@ -3300,60 +3487,50 @@ function renderMdSimple(text) {
  * 展示系统对用户的多维评估：基础水平、能力画像（雷达+进度条）、
  * 岗位匹配、增长/短板分析，以及等级成长路径。 */
 function showAssessment() {
+  setNavActive("radar");
   const profilePct = abilityProfilePct();
   const profileKeys = Object.keys(profilePct);
   const assess = baseLevelAssessment();
-  const jobs = matchJobs(profilePct);
   const growth = analyzeGrowth(profilePct);
 
-  // 成长路径（基础段线性 + 专家分支平级 + 全栈汇聚 + 大师顶点）
-  const t = currentTitle();
+  // 岗位匹配：紧凑条形（Top5 + 进度条），替代 matchJobs 大卡列表
+  const jobs = (() => {
+    const ec = state.exams || 0;
+    const strict = ec < 3 ? 0.7 : ec < 5 ? 0.85 : 1;
+    const rows = JOBS.map((j) => {
+      let num = 0, den = 0;
+      for (const [ab, w] of Object.entries(j.weight)) { num += (profilePct[ab] ?? 0) * w; den += w * 100; }
+      return { name: j.name, score: Math.round((num / Math.max(den, 1)) * 100 * strict) };
+    }).sort((a, b) => b.score - a.score).slice(0, 5);
+    return rows.map((r, i) => `
+      <div style="margin-bottom:9px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+          <span style="color:${i === 0 ? "#00e5ff" : "var(--text-1)"};font-weight:${i === 0 ? 700 : 400}">${i === 0 ? "🏆 " : ""}${r.name}</span>
+          <span style="font-family:var(--mono);font-weight:700;color:${r.score >= 70 ? "#00e5ff" : r.score >= 50 ? "#ffb84d" : "#6b7a90"}">${r.score}%</span>
+        </div>
+        <div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${r.score}%;background:linear-gradient(90deg,#00e5ff,#2fd6b5);border-radius:3px"></div>
+        </div>
+      </div>`).join("");
+  })();
+
+  // 概览统计（成长路径等级阶梯已移除——首页激励条承载称号进度）
   const unlocked = BADGES.filter((b) => b.check(state)).length;
   const ap = calcAP(state);
-  const avg = profileAvgScore();
-  const curIdx = currentLevelIndex();
-
-  // 专家方向精通情况
-  const expertReached = EXPERT_TRACKS.filter((tr) => (profilePct[tr.ability] || 0) >= tr.threshold);
-
-  const rankRow = (r) => {
-    const reached = r.reached;
-    return `
-    <div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:10px;margin-bottom:6px;
-      background:${reached ? "rgba(255,184,77,0.08)" : "rgba(255,255,255,0.02)"};
-      border:1px solid ${reached ? "rgba(255,184,77,0.35)" : "var(--border)"}">
-      <span style="font-size:20px">${r.icon}</span>
-      <div style="flex:1">
-        <div style="font-weight:700;font-size:13.5px;color:${reached ? "#fff3cc" : "var(--text-1)"}">Lv.${r.rankNo} ${r.title} <span style="font-size:10.5px;color:var(--text-2);font-family:var(--mono)">（${r.desc}）</span></div>
-        ${r.tracks ? r.tracks.map((tr) => `
-          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-top:3px;color:${tr.reached ? "#2fd6b5" : "var(--text-2)"}">
-            <span>${tr.icon} ${tr.title}</span><span style="font-family:var(--mono)">${tr.val}%</span>
-          </div>`).join("") : ""}
-      </div>
-      <span style="font-size:11.5px;color:${reached ? "#00e5ff" : "var(--text-2)"}">${reached ? "✅ 已达成" : "🔒"}</span>
-    </div>`;
-  };
-
-  const ranks = [
-    { rankNo: 8, title: GRAND_MASTER_TITLE.title, icon: GRAND_MASTER_TITLE.icon, desc: "画像 ≥98%", reached: avg >= 98 },
-    { rankNo: 7, title: FULL_STACK_TITLE.title, icon: FULL_STACK_TITLE.icon, desc: "三个专家方向均 ≥75%", reached: expertReached.length >= EXPERT_TRACKS.length },
-    { rankNo: 6, title: "专家方向", icon: "🔀", desc: "三选一 · 达到即解锁", reached: expertReached.length >= 1, tracks: EXPERT_TRACKS.map((tr) => ({ icon: tr.icon, title: tr.title, val: Math.round(profilePct[tr.ability] || 0), reached: (profilePct[tr.ability] || 0) >= tr.threshold })) },
-    ...LEVEL_TITLES.slice().reverse().map((lt, i) => ({ rankNo: LEVEL_TITLES.length - i, title: lt.title, icon: lt.icon, desc: `画像 ≥${lt.score}%`, reached: avg >= lt.score })),
-  ];
-  const ladder = ranks.map(rankRow).join("");
 
   // 维度进度条（无数据时返回空串，空态在外层统一渲染）
-  const bars = profileKeys.length
-    ? profileKeys.slice().sort((a, b) => (profilePct[b] - profilePct[a])).map((ab) => `
-      <div>
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px">
-          <span style="color:var(--text-1)">${ab}</span>
-          <span style="color:#ff3df0;font-weight:700;font-family:var(--mono)">${profilePct[ab]}%</span>
-        </div>
-        <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${profilePct[ab]}%;background:linear-gradient(90deg,#00e5ff,#ff3df0);border-radius:3px"></div>
-        </div>
-      </div>`).join("")
+
+  // 能力画像图例：10 色顶点对应（与 Hero 演示一致，替代原两列维度条）
+  const assessLegend = profileKeys.length
+    ? ABILITIES.map((ab, i) => {
+        const v = profilePct[ab] ?? 0;
+        const c = HOME_LEGEND_COLORS[i % HOME_LEGEND_COLORS.length];
+        return `<div class="dl-row">
+          <span class="dl-dot" style="background:${c};box-shadow:0 0 6px ${c}cc"></span>
+          <span class="dl-name">${esc(ab)}</span>
+          <span class="dl-val" style="color:${c}">${v}%</span>
+        </div>`;
+      }).join("")
     : "";
 
   // 能力画像空态（居中、明显、精确说明考核类型）
@@ -3383,62 +3560,58 @@ function showAssessment() {
 
   render(() => {
     const pc = document.getElementById("assess-canvas");
-    if (pc && profileKeys.length) drawRadarProfile(profilePct, "#assess-canvas");
+    if (pc && profileKeys.length) drawRadarProfile(profilePct, "#assess-canvas", { noLabels: true, vertexColors: HOME_LEGEND_COLORS });
   }, `
-    <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">🧬 个人能力评估</h2>
-
-    <!-- 概览：基础水平 + 关键数据 -->
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-        <div style="display:flex;align-items:center;gap:14px">
-          <div style="font-size:40px;filter:drop-shadow(0 0 12px ${assess.color})">${assess.icon}</div>
-          <div>
-            <div style="font-size:20px;font-weight:800;color:${assess.color};font-family:var(--cyber);letter-spacing:1px">${assess.level}</div>
-            <div style="font-size:12.5px;color:var(--text-2);margin-top:3px">${assess.desc}</div>
-          </div>
-        </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px">
+      <h2 class="section-title" style="margin:0">${icon("radar", "lg")} 个人能力评估</h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="exam-btn ghost" style="padding:6px 14px;font-size:12px" onclick="exportProfile()">${icon("download")} 导出报告</button>
+        <button class="exam-btn ghost" style="padding:6px 14px;font-size:12px" onclick="showBadges()">${icon("award")} 成就徽章</button>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+    </div>
+
+    <!-- 概览条：等级 + 关键数据（紧凑一行） -->
+    <div class="card assess-overview" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="font-size:38px;filter:drop-shadow(0 0 12px ${assess.color})">${assess.icon}</div>
+        <div style="flex:1;min-width:170px">
+          <div style="font-size:19px;font-weight:800;color:${assess.color};font-family:var(--cyber);letter-spacing:1px">${assess.level}</div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:2px">${assess.desc}</div>
+        </div>
         ${statItems.map((s) => `
-          <div style="flex:1;min-width:90px;text-align:center;padding:12px 8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:20px;font-weight:800;color:#00e5ff;font-family:var(--cyber)">${s.val}</div>
-            <div style="font-size:11px;color:var(--text-2);margin-top:3px;font-family:var(--mono)">${s.label}</div>
+          <div style="text-align:center;min-width:62px;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:9px">
+            <div style="font-size:17px;font-weight:800;color:#00e5ff;font-family:var(--cyber)">${s.val}</div>
+            <div style="font-size:10px;color:var(--text-2);margin-top:2px;font-family:var(--mono)">${s.label}</div>
           </div>`).join("")}
       </div>
     </div>
 
-    <!-- 能力画像：雷达 + 进度条 -->
-    <div class="card" style="margin-bottom:16px">
-      <h3 class="section-title" style="margin:0 0 14px">🧠 能力画像（十维）</h3>
-      ${profileKeys.length ? `
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="radar-wrap"><canvas id="assess-canvas" width="480" height="400"></canvas></div>
-        <div style="display:flex;flex-direction:column;gap:8px">${bars}</div>
-      </div>` : profileEmpty}
-    </div>
-
-    <!-- 岗位匹配 -->
-    <div class="card" style="margin-bottom:16px">
-      <h3 class="section-title" style="margin:0 0 14px">💼 岗位匹配度</h3>
-      ${jobs}
-    </div>
-
-    <!-- 增长分析 -->
-    <div class="card" style="margin-bottom:16px">
-      <h3 class="section-title" style="margin:0 0 14px">📊 增长与短板分析</h3>
-      ${growthHtml}
-    </div>
-
-    <!-- 成长路径（等级阶梯） -->
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h3 class="section-title" style="margin:0">🚀 成长路径</h3>
-        <div style="font-size:12px;color:var(--text-2);font-family:var(--mono)">当前：${t.icon} ${t.title} · 综合画像 ${avg}%</div>
+    <div class="assess-grid">
+      <!-- 能力画像：彩色顶点雷达 + 10 色图例（与 Hero 演示一致） -->
+      <div class="card" style="margin:0">
+        <h3 class="section-title" style="margin:0 0 12px">🧠 能力画像（十维）</h3>
+        ${profileKeys.length ? `
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center">
+            <div style="text-align:center"><canvas id="assess-canvas" width="340" height="340"></canvas></div>
+            <div class="demo-legend">${assessLegend}</div>
+          </div>` : profileEmpty}
       </div>
-      ${ladder}
-      <div style="margin-top:12px"><button class="exam-btn ghost" onclick="showBadges()">🏅 查看成就徽章</button></div>
-    </div>`);
+
+      <!-- 岗位匹配：紧凑条形 Top5 -->
+      <div class="card" style="margin:0">
+        <h3 class="section-title" style="margin:0 0 12px">${icon("briefcase", "lg")} 岗位匹配度</h3>
+        <div style="font-size:11px;color:var(--text-2);margin-bottom:10px">样本不足从严折扣（<3 次 ×0.7 / <5 次 ×0.85）</div>
+        ${jobs}
+      </div>
+
+      <!-- 增长与短板 -->
+      <div class="card" style="margin:0">
+        <h3 class="section-title" style="margin:0 0 10px">📊 增长与短板</h3>
+        ${growthHtml}
+      </div>
+
+    </div>
+  `);
 }
 
 function showBadges() {
@@ -3474,7 +3647,7 @@ function showBadges() {
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
     <div style="display:flex;gap:20px;align-items:center;margin-bottom:6px">
-      <h2 class="section-title" style="margin:0">🏅 成就墙（${unlocked.length}/${BADGES.length}）</h2>
+      <h2 class="section-title" style="margin:0">${icon("award", "lg")} 成就墙（${unlocked.length}/${BADGES.length}）</h2>
       <div style="font-size:11.5px;color:var(--text-1)">${title.icon} <strong style="color:var(--warn)">${title.title}</strong> · 成就点 <strong style="color:var(--warn)">${ap}</strong></div>
     </div>
     <div style="font-size:11.5px;color:var(--text-2);margin-bottom:10px">稀有度：青铜 → 白银 → 黄金 → 传说 · 每个徽章奖励成就点（AP）</div>
@@ -3502,7 +3675,7 @@ function examNeeded(dirId, mode) {
   showModal({
     icon: isTheory ? "📘" : "🛠️",
     title: "该目录暂无" + (isTheory ? "理论" : "实战") + "题",
-    text: (isTheory ? "理论题（选择/判断/填空）" : "实战题（代码客观题）") + "由 LLM 基于课程内容生成，当前目录还没有。请先配置 API Key，再点「🤖 补出题」生成。",
+    text: (isTheory ? "理论题（选择/判断/填空）" : "实战题（代码客观题）") + "由 LLM 基于课程内容生成，当前目录还没有。请先配置 API Key，再点「补出题」生成。",
     actions: [
       { label: "⚙️ 去配置 Key", primary: true, onClick: () => showSettings() },
       { label: "知道了", onClick: () => {} },
@@ -3514,7 +3687,7 @@ function examNeeded(dirId, mode) {
 async function reGenerateQuestions(dirId) {
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "补出题需要 LLM",
       text: "理论考核需要客观题（选择/判断/填空），这些题由 LLM 基于课程内容生成。请先在「设置」里配置 API Key。",
       actions: [
@@ -3545,7 +3718,7 @@ async function reGenerateQuestions(dirId) {
       showLibrary();
       return;
     }
-    showToast("🤖 正在用 LLM 补出题（" + (needTheory ? "理论" : "") + (needTheory && needPrac ? " + " : "") + (needPrac ? "实战" : "") + "）…");
+    showToast("正在用 LLM 补出题（" + (needTheory ? "理论" : "") + (needTheory && needPrac ? " + " : "") + (needPrac ? "实战" : "") + "）…");
     // 去重 + 补全 + 入库（与导入流程 hangQ 同逻辑）
     const seenTxt = new Set(quiz.map((q) => (q.question || "") + "|" + q.type));
     let nid = Date.now();   // 13 位毫秒全局唯一，同目录内 nid++ 不重
@@ -3602,6 +3775,7 @@ async function reGenerateQuestions(dirId) {
 
 /* 目录列表页：每个目录右侧理论/实战考核按钮 + 改名 + 删目录 + 进入详情 */
 async function showLibrary() {
+  setNavActive("library");
   const dirs = await refreshDirs();
   const cards = dirs.map((d) => {
     // 纯笔记目录（无代码素材）不显示实战考核按钮；旧目录索引无 hasCode 字段时按 practicalCount 兜底
@@ -3614,29 +3788,29 @@ async function showLibrary() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <span style="font-size:22px">📚</span>
+            <span style="display:flex;align-items:center">${icon("book-open", "lg")}</span>
             <span style="font-size:16px;font-weight:800;color:var(--text-0)">${esc(d.title)}</span>
-            <button class="exam-btn ghost" style="padding:4px 10px;font-size:11.5px" onclick="renameDir('${d.id}', '${jsStr(d.title)}')">✏️ 改名</button>
+            <button class="exam-btn ghost" style="padding:4px 10px;font-size:11.5px" onclick="renameDir('${d.id}', '${jsStr(d.title)}')">${icon("edit-3")} 改名</button>
           </div>
           <div style="font-size:12px;color:var(--text-2);margin-top:6px;font-family:var(--mono)">
             ${d.fileCount} 个文件 · ${d.quizCount} 题（理论 ${d.theoryCount} · 实战 ${d.practicalCount} · 面试 ${d.interviewCount}）
           </div>
-          ${!theoryReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题不足（${d.theoryCount}/8）——点「🤖 补出题」补齐后即可考核</div>` : ""}
-          ${hasCode && !practicalReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 实战题不足（${d.practicalCount}/5）——点「🤖 补出题」补齐后即可考核</div>` : ""}
+          ${!theoryReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题不足（${d.theoryCount}/8）——点「补出题」补齐后即可考核</div>` : ""}
+          ${hasCode && !practicalReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 实战题不足（${d.practicalCount}/5）——点「补出题」补齐后即可考核</div>` : ""}
           <div style="font-size:11px;color:var(--text-2);margin-top:3px">${d.createdAt ? d.createdAt.slice(0, 16).replace("T", " ") : ""}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           ${theoryReady
-            ? `<button class="exam-btn primary" onclick="startDirExam('${d.id}', 'theory')">📘 理论考核</button>`
-            : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="理论题不足 8 道，先补出题或重新导入">📘 理论考核</button>`}
-          ${needRegen ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">🤖 补出题</button>` : ""}
+            ? `<button class="exam-btn primary" onclick="startDirExam('${d.id}', 'theory')">${icon("book-open")} 理论考核</button>`
+            : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="理论题不足 8 道，先补出题或重新导入">${icon("book-open")} 理论考核</button>`}
+          ${needRegen ? `<button class="exam-btn" style="color:#ffb84d;border-color:rgba(255,184,77,0.4)" onclick="reGenerateQuestions('${d.id}')">${icon("robot")} 补出题</button>` : ""}
           ${hasCode
             ? (practicalReady
-                ? `<button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')">🛠️ 实战考核</button>`
-                : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="实战题不足 5 道，先补出题">🛠️ 实战考核</button>`)
+                ? `<button class="exam-btn" onclick="startDirExam('${d.id}', 'practical')">${icon("wrench")} 实战考核</button>`
+                : `<button class="exam-btn" style="opacity:0.4;cursor:not-allowed;border-color:var(--border)" title="实战题不足 5 道，先补出题">${icon("wrench")} 实战考核</button>`)
             : ""}
-          <button class="exam-btn ghost" onclick="showDirDetail('${d.id}')">📁 管理</button>
-          <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="deleteDir('${d.id}')">🗑️</button>
+          <button class="exam-btn ghost" onclick="showDirDetail('${d.id}')">${icon("folder")} 管理</button>
+          <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4)" onclick="deleteDir('${d.id}')">${icon("trash-2")}</button>
         </div>
       </div>
     </div>`;
@@ -3645,14 +3819,14 @@ async function showLibrary() {
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
-      <h2 class="section-title" style="margin:0">🗂️ 资料目录（${dirs.length}）</h2>
-      <button class="exam-btn primary" onclick="showImportPanel()">📥 新建目录（导入资料）</button>
+      <h2 class="section-title" style="margin:0">${icon("folder", "lg")} 资料目录（${dirs.length}）</h2>
+      <button class="exam-btn primary" onclick="showImportPanel()">${icon("upload")} 新建目录（导入资料）</button>
     </div>
     <div style="font-size:12.5px;color:var(--text-2);margin-bottom:14px">每次导入创建一个章节目录。可针对任意目录单独进行理论/实战考核，也可进入目录补充或删减文件。</div>
     ${cards || `<div class="card empty-hint" style="padding:36px;text-align:center">
-      <div style="font-size:40px;margin-bottom:10px">📭</div>
+      <div style="margin-bottom:10px">${icon("folder", "xxl")}</div>
       <div style="font-size:14px;color:var(--text-1);margin-bottom:14px">还没有任何资料目录</div>
-      <button class="exam-btn primary" onclick="showImportPanel()">📥 导入资料，创建第一个目录</button>
+      <button class="exam-btn primary" onclick="showImportPanel()">${icon("upload")} 导入资料，创建第一个目录</button>
     </div>`}`);
 }
 
@@ -3711,7 +3885,7 @@ async function handleDirFileAdd(fileList, dirId) {
   // 追加文件也会生成题（LLM 驱动），未配置 LLM 则阻止
   if (!LLM_KEY) {
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: "追加文件需要 LLM",
       text: "追加文件时由 LLM 出题，请先配置 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口）。",
       actions: [
@@ -3838,7 +4012,7 @@ async function startDirExam(dirId, mode) {
   if (!LLM_KEY) {
     const modeName = mode === "theory" ? "理论" : "实战";
     showModal({
-      icon: "🤖",
+      iconHtml: icon("robot"),
       title: `${modeName}考核需要 LLM`,
       text: `${modeName}考核的出题、题目能力打标签、语义判分都由 LLM 完成，需要先配置 API Key（支持 DeepSeek 官方或中转站）。`,
       actions: [
@@ -3920,6 +4094,7 @@ async function startDirExam(dirId, mode) {
 }
 
 function showHistory() {
+  setNavActive("history");
   const rows = state.history.slice().reverse().map((h, i) => `
     <div class="exam-review-item">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -3930,7 +4105,7 @@ function showHistory() {
     </div>`).join("") || "<div class='empty'>还没有考核记录，去完成一次考核吧！</div>";
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">📈 学习历史（${state.history.length} 次）</h2>
+    <h2 class="section-title">${icon("history", "lg")} 学习历史（${state.history.length} 次）</h2>
     ${rows}`);
 }
 
@@ -3960,11 +4135,12 @@ function showInterviewHistory() {
     </div>`).join("") || "<div class='empty'>还没有面试记录，去完成一次面试考核吧！</div>";
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">💼 面试记录（${logs.length} 次）</h2>
+    <h2 class="section-title">${icon("briefcase", "lg")} 面试记录（${logs.length} 次）</h2>
     ${rows}`);
 }
 
 function showWrongBook() {
+  setNavActive("wrongbook");
   const items = state.wrongBook.map((w, i) => `
     <div class="exam-review-item">
       <div class="eri-q">${esc(w.q)}</div>
@@ -4023,9 +4199,9 @@ function exportProfile() {
   }).sort((a, b) => b.score - a.score);
 
   const lines = [];
-  lines.push("# AI 岗位能力试炼 · AI Job Skill Gauntlet 能力报告");
+  lines.push("# AI 技能考核中心 · AI Job Skill Gauntlet 能力报告");
   lines.push("");
-  lines.push("> 由「AI 岗位能力试炼 · AI Job Skill Gauntlet」自动生成 · " + new Date().toISOString().slice(0, 16).replace("T", " "));
+  lines.push("> 由「AI 技能考核中心 · AI Job Skill Gauntlet」自动生成 · " + new Date().toISOString().slice(0, 16).replace("T", " "));
   lines.push("");
   lines.push("## 基础水平");
   lines.push(`${assess.icon} ${assess.level}：${assess.desc}`);
@@ -4057,18 +4233,13 @@ function exportProfile() {
 
 /* ============================================================
  * 新人引导（Onboarding）
- * 1) 首页常驻「快速开始」引导条：4 步流程 + 实时状态 + 推荐下一步
- * 2) 首次使用自动播放高亮 Tour：全屏遮罩 + 目标高亮 + 步骤气泡
+ * 「快速开始」页：6 步流程 + 实时状态 + 推荐下一步（已移除高亮 Tour，有快速开始即可）
  * ============================================================ */
-const GUIDE_KEY = "examCenter.onboarded";     // 是否看过引导 Tour
-let guideForceFull = false;                   // 引导条强制显示完整 4 步
-
-// 6 步流程（顺序即推荐顺序：先夯实章节 → 再综合检验 → 最后面试）
 const GUIDE_STEPS = [
   { id: "llm", num: "①", icon: "⚙️", title: "配置 LLM", desc: "出题 / 判分 / 面试考核都由 LLM 驱动，先配置 API Key（支持 DeepSeek、阿里百炼等）", jump: showSettings, jumpLabel: "去配置" },
   { id: "import", num: "②", icon: "📥", title: "导入学习资料", desc: "拖入笔记 / 代码 / 文档或文件夹，系统自动解析并生成 12 道考核题", jump: showImportPanel, jumpLabel: "去导入" },
   { id: "chapter", num: "③", icon: "📘", title: "章节考核", desc: "进「资料目录」选章节分阶段考核，优先夯实每章基础", jump: showLibrary, jumpLabel: "去章节" },
-  { id: "cross", num: "④", icon: "🎯", title: "综合考核", desc: "聚合全部章节题库组卷，检验整体掌握（理论 / 实战）", jump: () => { const g = document.querySelector("#exam-view .mode-grid"); if (g) g.scrollIntoView({ behavior: "smooth", block: "center" }); }, jumpLabel: "去考核" },
+  { id: "cross", num: "④", icon: "🎯", title: "综合考核", desc: "聚合全部章节题库组卷，检验整体掌握（理论 / 实战）", jump: () => showExamIntro("theory"), jumpLabel: "去考核" },
   { id: "interview", num: "⑤", icon: "💼", title: "面试考核", desc: "最后挑战：AI 面试官按岗位严格追问，检验综合表达", jump: startInterview, jumpLabel: "去面试" },
   { id: "profile", num: "⑥", icon: "🧬", title: "查看能力画像", desc: "10 维能力雷达 + 岗位匹配 + 等级称号，掌握强弱项并导出报告", jump: showAssessment, jumpLabel: "看画像" },
 ];
@@ -4089,30 +4260,23 @@ function guideNextStepId() {
   for (const s of GUIDE_STEPS) if (!guideStepDone(s.id)) return s.id;
   return null;
 }
+function __guideJump(id) {
+  const s = GUIDE_STEPS.find((x) => x.id === id);
+  if (s && s.jump) s.jump();
+}
 
-// 首页「快速开始」引导条 HTML
-function renderGuideBarHTML() {
-  if (!guideForceFull) {
-    const nextId = guideNextStepId();
-    if (!nextId) {
-      return `<div class="guide-bar gb-all-done" id="guide-bar">
-        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap">
-          <span style="font-size:18px">🎉</span>
-          <div style="font-size:13.5px;color:var(--text-1)">恭喜！<strong style="color:var(--accent)">全部引导步骤已完成</strong>，你已经掌握完整流程。</div>
-        </div>
-        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="startGuideTour()">👀 新手引导演示</button>
-        <button class="exam-btn ghost" style="padding:6px 12px;font-size:12px" onclick="__guideShowAll()">📋 查看完整流程</button>
-      </div>`;
-    }
-  }
+/* 「快速开始」独立页（侧边栏入口）：复用 GUIDE_STEPS 渲染纵向步骤卡 */
+function showQuickStart() {
+  setNavActive("quickstart");
   const nextId = guideNextStepId();
+  const allDone = !nextId;
   const steps = GUIDE_STEPS.map((s) => {
     const done = guideStepDone(s.id);
     const isNext = s.id === nextId;
     const cls = done ? "done" : (isNext ? "next" : "todo");
     return `
     <div class="guide-step ${cls}" id="gs-${s.id}">
-      <div class="gs-badge">${done ? "✅" : s.num}</div>
+      <div class="gs-badge">${done ? "✓" : s.num}</div>
       <div class="gs-body">
         <div class="gs-title">${s.icon} ${esc(s.title)}</div>
         <div class="gs-desc">${esc(s.desc)}</div>
@@ -4125,136 +4289,182 @@ function renderGuideBarHTML() {
       </div>
     </div>`;
   }).join("");
-  return `<div class="guide-bar" id="guide-bar">
-    <div class="gb-head">
-      <div class="gb-title">🚀 快速开始 <span class="gb-sub">按顺序完成 6 步即可上手 · 章节 → 综合 → 面试 · 已完成自动打勾</span></div>
-      <button class="exam-btn ghost gb-replay" onclick="startGuideTour()">👀 新手引导演示</button>
+  render(null, `
+    <div class="guide-page">
+      <h2 class="section-title">${icon("rocket", "lg")} 快速开始</h2>
+      <div style="font-size:13px;color:var(--text-1);line-height:1.8;margin:6px 0 16px">按顺序完成 6 步即可上手：配置 LLM → 导入资料 → 章节 → 综合 → 面试 → 画像。已完成的步骤自动打勾，系统会标记你当前最该做的一步。</div>
+      ${allDone ? `<div class="card" style="margin-bottom:14px;padding:13px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-color:rgba(0,240,255,0.3)">
+        <span style="font-size:17px">🎉</span> 恭喜！<strong style="color:var(--accent)">全部引导步骤已完成</strong>，你已经掌握完整流程。
+      </div>` : ""}
+      <div class="guide-bar" style="margin:0"><div class="gb-steps">${steps}</div></div>
+      <div style="margin-top:16px">
+      </div>
+    </div>`);
+}
+
+/* ===== 考核介绍页（综合考核三个模式：说明 + 开启按钮，开启后进加载动画） ===== */
+const EXAM_INTRO = {
+  theory: {
+    title: "理论考核", icon: "brain", from: "#00e5ff", to: "#38bdf8",
+    badge: "客观题 · 跨章节综合",
+    summary: "聚合全部章节题库，由 LLM 从全题库动态组卷（约 16 题），检验整体掌握与遗忘，题目带 1-5 级难度覆盖多档。",
+    items: [
+      "题型：单选 / 多选 / 判断 / 填空（概念、原理、术语）",
+      "判分：客观题程序即时判分；填空支持语义模糊匹配",
+      "附加：能力打标签、连击、错题记录、错题回顾题注入",
+    ],
+    requires: "需先导入学习资料并配置 LLM（组卷/判分由 LLM 驱动）",
+    cta: "开始理论考核",
+    start: "startExam('theory')",
+  },
+  practical: {
+    title: "实战考核", icon: "code", from: "#ff3df0", to: "#b026ff",
+    badge: "代码实战客观题 · 跨章节综合",
+    summary: "跨全部章节的代码实战客观题（约 10 题），检验代码阅读与排错能力：判断代码输出、预测运行结果、定位 Bug。",
+    items: [
+      "题型：代码实战客观题（单选/多选，可含多文件代码片段）",
+      "判分：程序即时判分，零误差",
+      "要求：资料中需包含代码文件（py / ipynb / js / ts / java）",
+    ],
+    requires: "需已导入含代码的资料并配置 LLM",
+    cta: "开始实战考核",
+    start: "startExam('practical')",
+  },
+  interview: {
+    title: "面试考核", icon: "messages-square", from: "#b026ff", to: "#00e5ff",
+    badge: "AI 面试官仿真对话",
+    summary: "选择岗位后，AI 面试官按岗位知识图谱（职责/核心技能/考察维度/追问方向）进行多轮严格追问，最终给出综合评分与维度点评。",
+    items: [
+      "流程：选岗位 → 多轮问答（场景题 + 追问深挖）→ 综合评分",
+      "机制：追问预算递减；连续弱回答（≥3 次）提前终止面试",
+      "产出：面试记录存档 + 能力画像累积 + 岗位匹配建议",
+    ],
+    requires: "需配置 LLM；建议先完成理论/实战考核打好基础",
+    cta: "开始面试考核",
+    start: "startInterview()",
+  },
+};
+
+function showExamIntro(mode) {
+  // 面试考核：专属精致介绍页（岗位预览 + 流程时间线 + 机制/产出 + FAQ）
+  if (mode === "interview") return renderInterviewIntro();
+  const cfg = EXAM_INTRO[mode] || EXAM_INTRO.theory;
+  setNavActive(mode);
+  render(null, `
+    <div class="exam-intro">
+      <div style="display:flex;align-items:center;gap:18px;margin-bottom:20px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center">${neonIcon(cfg.icon, "ei-" + mode, cfg.from, cfg.to, "xl")}</div>
+        <div style="flex:1;min-width:200px">
+          <h2 class="section-title" style="margin:0">${cfg.title}</h2>
+          <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);margin-top:4px">${cfg.badge}</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-size:14.5px;font-weight:700;color:var(--text-0);margin-bottom:10px;display:flex;align-items:center;gap:9px">${icon("info", "lg")} 考核说明</div>
+        <div style="font-size:13.5px;color:var(--text-1);line-height:1.9">${cfg.summary}</div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:9px">
+          ${cfg.items.map((t) => `<div style="display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--text-1);line-height:1.7"><span style="color:var(--accent);margin-top:1px">${icon("check")}</span>${t}</div>`).join("")}
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
+        <span style="color:#ffb84d">${icon("alert-triangle")}</span>
+        <div style="font-size:12.5px;color:var(--text-1)">${cfg.requires}</div>
+      </div>
+
+      <button class="exam-btn primary exam-intro-cta" onclick="${cfg.start}">${icon("zap")} ${cfg.cta}</button>
+      <div style="margin-top:12px;font-size:11.5px;color:var(--text-2)">点击后进入加载动画：LLM 组卷 / 面试准备 → 完成后自动进入考核。</div>
     </div>
-    <div class="gb-steps">${steps}</div>
-  </div>`;
+  `);
 }
 
-function __guideShowAll() { guideForceFull = true; goHome(); }
-function __guideJump(id) {
-  const s = GUIDE_STEPS.find((x) => x.id === id);
-  if (s && s.jump) s.jump();
-}
+/* 面试考核介绍页（精致版）：岗位预览 + 流程时间线 + 机制/产出双栏 + FAQ */
+function renderInterviewIntro() {
+  setNavActive("interview");
+  const jobChips = (typeof JOBS !== "undefined" ? JOBS : []).map((j) => `
+    <div class="iv-job" title="点击进入选岗页，可查看岗位知识库详情" onclick="startInterview()">
+      <div class="iv-job-ic">${icon("briefcase")}</div>
+      <div>
+        <div class="iv-job-name">${esc(j.name)}</div>
+        <div class="iv-job-desc">${esc(j.desc)}</div>
+      </div>
+    </div>`).join("");
+  const timeline = [
+    { icon: "user", title: "选择岗位", desc: "8 个 AI 岗位方向，AI 面试官加载对应岗位知识图谱" },
+    { icon: "message-circle", title: "开场问答", desc: "围绕岗位职责/核心技能/知识图谱要点多轮提问" },
+    { icon: "search", title: "深挖追问", desc: "答不上时按追问方向深挖；连续弱答提前终止" },
+    { icon: "award", title: "综合评分", desc: "总分 + 10 维能力点评 + 面试记录存档" },
+  ].map((s, i) => `
+    <div class="iv-tl-item">
+      <div class="iv-tl-dot">${icon(s.icon)}</div>
+      <div class="iv-tl-title">${i + 1}. ${s.title}</div>
+      <div class="iv-tl-desc">${s.desc}</div>
+    </div>`).join("");
+  const mech = [
+    ["zap", "追问预算递减", "每轮追问次数有限，逼真模拟真实面试官的时间压力"],
+    ["shield", "连续弱答终止", "连续 ≥3 次弱回答（不知道/不会/避重就轻）提前结束面试"],
+    ["target", "严格评分", "总评 + 10 维能力逐项点评，不做虚假鼓励"],
+  ].map(([ic, t, d]) => `<div class="iv-mech-item">${icon(ic)}<div><strong style="color:var(--text-0)">${t}</strong> — ${d}</div></div>`).join("");
+  const gain = [
+    ["history", "面试记录存档", "每次面试完整对话可回看，复盘表达与知识盲区"],
+    ["trending-up", "能力画像累积", "面试表现计入 10 维能力雷达与等级称号"],
+    ["briefcase", "岗位匹配建议", "基于画像给出最匹配岗位与提升方向"],
+  ].map(([ic, t, d]) => `<div class="iv-mech-item">${icon(ic)}<div><strong style="color:var(--text-0)">${t}</strong> — ${d}</div></div>`).join("");
+  const faqs = [
+    ["需要先完成理论/实战考核吗？", "建议先完成，但非强制。面试会暴露真实表达能力，直接挑战也能快速定位短板。"],
+    ["没有岗位知识库的资料能面试吗？", "可以。面试按内置岗位知识库（职责/技能/追问方向）驱动，不依赖你导入的资料。"],
+    ["面试会被记录吗？", "会。完整对话存档到本机 profile.json，可在「学习历史 → 面试记录」随时回看。"],
+  ].map(([q, a]) => `<div class="iv-faq-item"><span class="iv-faq-q">Q：${q}</span>${a}</div>`).join("");
+  render(null, `
+    <div class="iv-intro">
+      <div class="iv-hero">
+        <div style="display:flex;align-items:center">${neonIcon("messages-square", "ei-iv", "#b026ff", "#00e5ff", "xl")}</div>
+        <div style="flex:1;min-width:200px">
+          <h2 class="section-title" style="margin:0">面试考核</h2>
+          <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);margin-top:4px">AI 面试官仿真对话 · 岗位知识图谱驱动 · 严格评分</div>
+        </div>
+        <div style="font-size:12px;color:var(--text-2);text-align:right">
+          <div style="font-family:var(--cyber);font-size:22px;color:var(--accent)">8</div>
+          <div>可选岗位</div>
+        </div>
+      </div>
 
-/* ---------- 高亮引导 Tour ---------- */
-const TOUR_STEPS = [
-  { icon: "🤖", title: "欢迎来到 AI 岗位能力试炼", text: "这是一套本地 AI 岗位面试能力评估系统：导入学习资料 → LLM 自动出题 → 三种考核（章节 → 综合 → 面试）→ 10 维能力画像 + 岗位匹配。下面带你走一遍完整流程。", sel: null },
-  { icon: "⚙️", title: "第 1 步 · 配置 LLM", text: "出题、语义判分、岗位匹配都由 LLM 驱动。请先在「设置」中填入 API Key（支持 DeepSeek、阿里百炼等 OpenAI 兼容接口），Key 仅保存在本机浏览器，不会上传服务器。", sel: 'button[onclick="showSettings()"]' },
-  { icon: "📥", title: "第 2 步 · 导入学习资料", text: "点击「导入资料」，拖入笔记、代码、文档或整个文件夹，系统自动解析并生成考核题（选择 / 判断 / 填空 + 实战场景题）。", sel: 'button[onclick="showImportPanel()"]' },
-  { icon: "📘", title: "第 3 步 · 章节考核（建议优先）", text: "进「资料目录」选择单个章节分阶段考核（理论 / 实战），先夯实每一章的基础，掌握局部再谈整体。", sel: 'button[onclick="showLibrary()"]' },
-  { icon: "🎯", title: "第 4 步 · 综合考核", text: "跨全部章节混合出题，检验整体掌握与遗忘点：📘 理论考核（客观题）+ 🛠️ 实战考核（代码实战客观题）。", sel: ".mode-grid" },
-  { icon: "💼", title: "第 5 步 · 面试考核（最后挑战）", text: "选一个岗位（Agent 工程师 / RAG 工程师等 8 个方向），AI 面试官按岗位知识图谱严格追问、深挖、甚至提前结束面试。建议完成前两步考核后再来。", sel: '.mode-card[onclick="startInterview()"]' },
-  { icon: "🧬", title: "第 6 步 · 查看能力画像", text: "完成考核后回到首页，可查看 10 维能力雷达图、岗位匹配度、等级称号，并导出评估报告。", sel: 'button[onclick="showAssessment()"]' },
-  { icon: "🚀", title: "全部完成 🎉", text: "首页顶部常驻「快速开始」引导条会实时标记你的进度并推荐下一步；随时可点「新手引导演示」重看本教程。祝你试炼顺利！", sel: null },
-];
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:var(--text-0);margin-bottom:12px;display:flex;align-items:center;gap:9px">${icon("briefcase", "lg")} 选择面试岗位（点击直接开面）</div>
+        <div class="iv-jobs">${jobChips}</div>
+      </div>
 
-let tourStep = -1;
-let tourEls = null;          // { mask, hole, bubble }
-let tourScrollHandler = null;
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:var(--text-0);margin-bottom:14px;display:flex;align-items:center;gap:9px">${icon("git-branch", "lg")} 面试流程</div>
+        <div class="iv-tl">${timeline}</div>
+      </div>
 
-function startGuideTour() {
-  closeGuideTour();
-  localStorage.setItem(GUIDE_KEY, "1");
-  tourStep = 0;
-  const mask = document.createElement("div");
-  mask.className = "tour-mask";
-  mask.innerHTML = `<div class="tour-hole"></div><div class="tour-bubble"></div>`;
-  document.body.appendChild(mask);
-  tourEls = { mask, hole: mask.querySelector(".tour-hole"), bubble: mask.querySelector(".tour-bubble") };
-  // 点击高亮目标区域（穿透到按钮）→ 关闭 tour 并让按钮正常执行
-  mask.addEventListener("click", (e) => {
-    const t = e.target;
-    if (t && t.closest && t.closest(".tour-target")) closeGuideTour();
-  }, true);
-  tourScrollHandler = () => {
-    if (!tourEls) return;
-    const s = TOUR_STEPS[tourStep];
-    if (s && s.sel) { const el = $(s.sel); if (el) positionTour(el); }
-  };
-  window.addEventListener("scroll", tourScrollHandler, true);
-  window.addEventListener("resize", tourScrollHandler);
-  showTourStep(0);
-}
+      <div class="iv-two" style="margin-bottom:16px">
+        <div class="card" style="margin:0">
+          <div style="font-size:13.5px;font-weight:700;color:var(--accent-2);margin-bottom:6px;display:flex;align-items:center;gap:8px">${icon("zap", "lg")} 面试机制</div>
+          ${mech}
+        </div>
+        <div class="card" style="margin:0">
+          <div style="font-size:13.5px;font-weight:700;color:var(--accent);margin-bottom:6px;display:flex;align-items:center;gap:8px">${icon("trending-up", "lg")} 面试产出</div>
+          ${gain}
+        </div>
+      </div>
 
-function showTourStep(i) {
-  if (!tourEls) return;
-  const prev = TOUR_STEPS[tourStep];
-  if (prev && prev.sel) { const p = $(prev.sel); if (p) p.classList.remove("tour-target"); }
-  tourStep = i;
-  const s = TOUR_STEPS[i];
-  if (!s) { closeGuideTour(); return; }
-  tourEls.bubble.classList.remove("tb-center");
-  tourEls.bubble.style.transform = "none";
-  tourEls.bubble.innerHTML = `
-    <div class="tb-icon">${s.icon}</div>
-    <div class="tb-title">${esc(s.title)}</div>
-    <div class="tb-text">${esc(s.text)}</div>
-    <div class="tb-actions">
-      ${i > 0 ? `<button class="exam-btn ghost" onclick="__tourPrev()">← 上一步</button>` : ""}
-      ${i < TOUR_STEPS.length - 1 ? `<button class="exam-btn" onclick="__tourNext()">下一步 →</button>` : `<button class="exam-btn primary" onclick="__tourDone()">开始体验</button>`}
-      <button class="exam-btn ghost" style="border-color:var(--border)" onclick="__tourSkip()">跳过</button>
-    </div>`;
-  if (s.sel) {
-    const el = $(s.sel);
-    if (el) {
-      el.classList.add("tour-target");
-      try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { /* ignore */ }
-      setTimeout(() => { if (tourEls) positionTour(el); }, 420);
-    } else { centerTourBubble(); }
-  } else { centerTourBubble(); }
-}
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13.5px;font-weight:700;color:var(--text-0);margin-bottom:10px;display:flex;align-items:center;gap:8px">${icon("help-circle", "lg")} 常见问题</div>
+        <div class="iv-faq">${faqs}</div>
+      </div>
 
-function centerTourBubble() {
-  if (!tourEls) return;
-  tourEls.hole.style.display = "none";
-  tourEls.bubble.classList.add("tb-center");
-  tourEls.bubble.style.left = "50%";
-  tourEls.bubble.style.top = "50%";
-  tourEls.bubble.style.transform = "translate(-50%, -50%)";
-}
+      <div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
+        <span style="color:#ffb84d">${icon("alert-triangle")}</span>
+        <div style="font-size:12.5px;color:var(--text-1)">需配置 LLM（面试由 AI 面试官驱动）；建议先完成理论/实战考核再挑战面试。</div>
+      </div>
 
-function positionTour(el) {
-  if (!tourEls) return;
-  const rect = el.getBoundingClientRect();
-  const hole = tourEls.hole, bubble = tourEls.bubble;
-  hole.style.display = "block";
-  hole.style.left = (rect.left - 4) + "px";
-  hole.style.top = (rect.top - 4) + "px";
-  hole.style.width = (rect.width + 8) + "px";
-  hole.style.height = (rect.height + 8) + "px";
-  const bw = 360, bh = bubble.offsetHeight || 200;
-  const left = Math.min(Math.max(rect.left + rect.width / 2 - bw / 2, 12), window.innerWidth - bw - 12);
-  let top, arrow;
-  if (rect.top - bh - 18 > 10) { top = rect.top - bh - 18; arrow = "down"; }
-  else if (rect.bottom + bh + 18 < window.innerHeight - 10) { top = rect.bottom + 18; arrow = "up"; }
-  else { top = 12; arrow = "up"; }
-  bubble.classList.remove("tb-arrow-up", "tb-arrow-down");
-  bubble.classList.add(arrow === "up" ? "tb-arrow-up" : "tb-arrow-down");
-  bubble.style.left = left + "px";
-  bubble.style.top = top + "px";
-  bubble.style.transform = "none";
-}
-
-function __tourNext() { showTourStep(tourStep + 1); }
-function __tourPrev() { showTourStep(tourStep - 1); }
-function __tourSkip() { closeGuideTour(); }
-function __tourDone() { closeGuideTour(); }
-function closeGuideTour() {
-  if (tourScrollHandler) {
-    window.removeEventListener("scroll", tourScrollHandler, true);
-    window.removeEventListener("resize", tourScrollHandler);
-    tourScrollHandler = null;
-  }
-  if (!tourEls) return;
-  const s = TOUR_STEPS[tourStep];
-  if (s && s.sel) { const el = $(s.sel); if (el) el.classList.remove("tour-target"); }
-  tourEls.mask.remove();
-  tourEls = null;
-  tourStep = -1;
+      <button class="exam-btn primary exam-intro-cta" onclick="startInterview()">${icon("messages-square")} 开始面试考核（先选岗位）</button>
+      <div style="margin-top:12px;font-size:11.5px;color:var(--text-2)">点击后进入选岗页面 → 开始面试。面试全程 LLM 驱动，结束后自动评分存档。</div>
+    </div>
+  `);
 }
 
 /* ---------------- 居中模态弹窗 ---------------- */
@@ -4267,7 +4477,7 @@ function showModal(opts) {
   mask.innerHTML = `
     <div class="modal-box">
       ${opts.closable !== false ? `<button class="mb-close" onclick="this.closest('.modal-mask').remove()">✕</button>` : ""}
-      ${opts.icon ? `<div class="mb-icon">${esc(opts.icon)}</div>` : ""}
+      ${opts.icon ? `<div class="mb-icon">${opts.iconHtml ? opts.iconHtml : esc(opts.icon)}</div>` : ""}
       ${opts.title ? `<div class="mb-title">${esc(opts.title)}</div>` : ""}
       ${opts.text ? `<div class="mb-text">${esc(opts.text)}</div>` : ""}
       ${actions ? `<div class="mb-actions">${actions}</div>` : ""}
@@ -4368,9 +4578,10 @@ let diagRows = [];              // 当前已加载的解析行
 let diagFilter = { level: "", tag: "", keyword: "" };
 
 async function showDiagnostics() {
+  setNavActive("diag");
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
-    <h2 class="section-title">🔍 诊断日志</h2>
+    <h2 class="section-title">${icon("terminal", "lg")} 诊断日志</h2>
     <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">记录导入 / 考核 / 面试 / LLM 交互 / 系统错误全链路事件（JSONL 落盘，可过滤、导出，用于问题追踪）</div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -4489,19 +4700,16 @@ async function init() {
   }
   await loadJobKnowledge();   // 加载岗位知识库（job_knowledge.json 数据库）
   loadState();
+  renderSidebar();   // 常驻左侧导航
   updateGamestat();
   goHome();
-  // 新人引导：首次使用（未看过引导）且题库为空 → 自动播放高亮 Tour
-  if (!localStorage.getItem(GUIDE_KEY) && !(COURSE && COURSE.quiz && COURSE.quiz.length)) {
-    setTimeout(() => startGuideTour(), 600);
-  }
-  // 已看过引导但未配置 LLM → 弹一次性配置提醒（只弹一次，之后可在设置里随时配置）
-  if (!LLM_KEY && localStorage.getItem(GUIDE_KEY) && !localStorage.getItem("examCenter.llmGuided")) {
+  // 未配置 LLM → 弹一次性配置提醒（只弹一次，之后可在设置里随时配置）
+  if (!LLM_KEY && !localStorage.getItem("examCenter.llmGuided")) {
     localStorage.setItem("examCenter.llmGuided", "1");
     setTimeout(() => {
       showModal({
-        icon: "🤖",
-        title: "欢迎使用 AI 岗位能力试炼 · AI Job Skill Gauntlet",
+        iconHtml: icon("robot"),
+        title: "欢迎使用 AI 技能考核中心 · AI Job Skill Gauntlet",
         text: "本系统的核心能力——出题、题目能力打标签、语义判分、岗位匹配——都由 LLM 驱动。建议先配置 LLM API Key（支持 DeepSeek 官方或中转站），才能完整体验理论 / 实战 / 面试三种考核。Key 仅保存在本机浏览器，浏览器直连 API，不会上传服务器。",
         actions: [
           { label: "⚙️ 去配置 LLM", primary: true, onClick: () => showSettings() },

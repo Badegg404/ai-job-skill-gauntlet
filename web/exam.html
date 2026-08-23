@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 岗位能力试炼 · AI Job Skill Gauntlet</title>
+  <title>AI 技能考核中心 · AI Job Skill Gauntlet</title>
   <link rel="stylesheet" href="style.css?v=20260819">
 </head>
 <body class="exam-body">
@@ -15,10 +15,13 @@
   <div id="particle-layer"></div>
   <div class="combo-banner" id="combo-banner"></div>
 
+  <!-- 常驻左侧导航（UI 优化：图标+文字，当前项霓虹高亮） -->
+  <aside class="app-sidebar" id="app-sidebar"></aside>
+
   <div class="exam-wrap">
     <!-- 顶栏：终端 HUD 风格 -->
     <header class="exam-topbar">
-      <div class="exam-logo"><span class="logo-cursor">&gt;_</span> AI知识考核中心 <span class="logo-ai">[AI-EXAM]</span></div>
+      <div class="exam-logo"><span class="logo-cursor">&gt;_</span><span class="logo-title">AI 技能考核中心</span><span class="logo-ai">[AI-EXAM]</span></div>
       <div class="exam-gamestat">
         <div class="gs-item"><div class="gs-level" id="gs-level">1</div><div class="gs-label" id="gs-title">🌱 见习学徒</div></div>
         <div class="gs-item"><div class="gs-num" id="gs-xp">0</div><div class="gs-label">XP</div></div>
@@ -36,6 +39,9 @@
   <script src="neural.js?v=20260819"></script>
   <script src="job_knowledge.js?v=20260819"></script>
   <script src="logger.js?v=20260819"></script>
+  <script src="icons.js?v=20260819"></script>
+  <script src="dataio.js?v=20260819"></script>
+  <script src="schema.js?v=20260819"></script>
   <script src="prompts.js?v=20260819"></script>
   <script src="scoring.js?v=20260819"></script>
   <script src="profile.js?v=20260819"></script>

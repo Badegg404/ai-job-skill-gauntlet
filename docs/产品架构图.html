@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 岗位能力试炼 · 产品架构图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { background:#0d1117; color:#c9d1d9; font-family:-apple-system,"PingFang SC",sans-serif; margin:0; padding:24px; }
+  h1 { color:#2fd6b5; border-bottom:1px solid #30363d; padding-bottom:12px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:18px 22px; margin:18px 0; overflow-x:auto; }
+  .card h2 { color:#ff3df0; font-size:16px; margin-top:0; }
+  .mermaid { background:#0d1117; padding:8px; border-radius:8px; }
+  .note { color:#8fa8c8; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>AI 岗位能力试炼 · 产品架构图</h1>
+<p class="note">共 6 张图：总体架构 / 导入出题 / 考核 / 面试 / 存储结构 / 日志数据流。权威源为 docs/产品架构图.md（GitHub 自动渲染），本页为本地预览版。</p>
+<div class="card"><h2>1. </h2><pre class="mermaid">flowchart TB
+    subgraph 用户侧["用户（浏览器窗口）"]
+        UI["exam.html<br/>单页应用"]
+    end
+
+    subgraph 前端["前端层 web/（原生 JS，零依赖）"]
+        EX["exam.js<br/>主逻辑：导入/考核/面试/画像/目录/诊断"]
+        PR["prompts.js<br/>全部 LLM 提示词（统一管理）"]
+        SC["scoring.js<br/>LLM 输出解析/归一化/校验"]
+        DI["dataio.js<br/>LLM 输入统一清洗（L1）"]
+        SH["schema.js<br/>LLM 输出 schema 校验（L3）"]
+        PF["profile.js<br/>能力画像/雷达图"]
+        LG["logger.js<br/>前端日志（批量上报）"]
+        JK["job_knowledge.json<br/>8 岗位知识库"]
+        LS["localStorage<br/>examCenter.v1 / llmKey 等"]
+        EX --- PR
+        EX --- SC
+        EX --- DI
+        EX --- SH
+        EX --- PF
+        EX --- LG
+        EX --- JK
+        EX --- LS
+    end
+
+    subgraph 后端["本地服务器 server.py（Python stdlib）"]
+        RT["路由分发<br/>GET/POST /api/*"]
+        ST["静态服务<br/>web/ 资源 + 版本号注入"]
+        PP["pipeline.py<br/>资料→目录构建"]
+        NP["parser/note_parser.py<br/>笔记解析（章节/概念/难点/测验）"]
+        STO["storage.py<br/>持久化 + 目录索引"]
+        UT["utils.py<br/>slug/去重/工具"]
+        RT --> PP
+        PP --> NP
+        RT --> STO
+        PP --> STO
+        RT --> ST
+        STO --> UT
+    end
+
+    subgraph LLM["LLM（浏览器直连，不经服务器）"]
+        API["OpenAI 兼容 API<br/>DeepSeek / 中转站"]
+    end
+
+    subgraph 存储["本地文件存储 ~/.exam-center"]
+        UDIR["users/{uid}/<br/>dirs / courses / imports /<br/>profile.json / course.json / logs"]
+        ALOG["logs/app.log<br/>全局系统日志"]
+    end
+
+    UI -->|"HTTP 127.0.0.1:8765"| RT
+    UI -->|"fetch /chat/completions<br/>（Key 在 localStorage）"| API
+    EX -->|"LLM 请求/响应<br/>（dataio→prompts→llmJSON）"| API
+    STO --> UDIR
+    RT --> ALOG
+    LG -->|"POST /api/log 批量"| RT</pre></div>
+<div class="card"><h2>2. 2.1 导入出题（资料 → 章节目录 → 题库）</h2><pre class="mermaid">sequenceDiagram
+    participant U as 用户
+    participant E as 前端 exam.js
+    participant S as server.py
+    participant P as pipeline/parser
+    participant L as LLM API
+
+    U->>E: 拖拽文件/文件夹
+    E->>S: POST /api/import-batch（多份 md）
+    S->>P: 解析资料（note_parser：章节/概念/难点/测验）
+    P->>S: 返回目录骨架 + 素材
+    S-->>E: dir + course（含资料自带题）
+    loop 理论 16 + 实战 10（首轮 + 最多 2 轮补足）
+        E->>E: browserLLMGenerate（llmJSON 约束层）
+        E->>L: 出题请求（prompts.js 模板 + 格式约束）
+        L-->>E: JSON 题（scoring.js 解析/归一化/校验）
+        E->>E: hangQ 去重挂库 → data.course.quiz
+    end
+    E->>S: POST /api/course-save（回写目录 + 课程库）
+    E->>L: generateJobQuestions（岗位面试题提炼）
+    E->>E: 导入完成（不足降级可用 + 补出题入口）
+    E->>LG: import.done 日志</pre></div>
+<div class="card"><h2>3. 2.2 考核（组卷 → 答题 → 判分 → 画像）</h2><pre class="mermaid">sequenceDiagram
+    participant U as 用户
+    participant E as 前端 exam.js
+    participant S as server.py
+    participant L as LLM API
+
+    U->>E: 进入理论/实战考核
+    E->>S: GET /api/dirs（聚合全部目录题库）
+    S-->>E: 目录 + 题量（theoryCount/practicalCount）
+    E->>E: 组卷：llmPickQuestions（LLM 挑题）
+    E->>L: 组卷请求（picks 数组）
+    L-->>E: picks → 试卷；失败走 adaptivePick 程序兜底
+    loop 逐题作答
+        U->>E: 提交答案
+        alt 客观题（选择/判断）
+            E->>E: judgeAnswer 程序判分（零误差）
+        else 语义判分（代码/阅读/填空/问答）
+            E->>L: llmGrade*（统一 llmJSON）
+            L-->>E: score/correct → 渲染结果
+        end
+        E->>E: 能力计分/连击/错题本
+    end
+    E->>E: showResult（成绩 + 能力得分率）
+    E->>E: saveState → profile.json（能力画像累积）
+    E->>S: POST /api/profile-save（clientTs 竞态防护）</pre></div>
+<div class="card"><h2>4. 2.3 面试（StateGraph 八节点）</h2><pre class="mermaid">sequenceDiagram
+    participant U as 用户
+    participant E as 前端 InterviewGraph
+    participant L as LLM API
+
+    U->>E: 选择岗位 → startJobInterview
+    E->>E: begin("iv") sessionId + 构建上下文（资料采样）
+    loop 每轮（maxRounds）
+        E->>L: ask 出题（岗位+资料+已问过去重）
+        L-->>E: 题目（题形：场景/问答/代码/选择）
+        U->>E: 作答
+        E->>E: record（弱回答正则检测）
+        alt 连续原题弱答 ≥3
+            E->>E: fail（提前终止）
+        else
+            E->>L: judge 评估（followup/advance/judged）
+            L-->>E: 结果
+            alt 需要追问（预算递减）
+                E->>L: 追问
+                L-->>E: 追问文案
+            else 答好
+                E->>E: advance（下一题）
+            end
+        end
+    end
+    E->>L: finishInterview 综合评分
+    L-->>E: totalScore + 维度点评
+    E->>E: interviewLogs 存档 → profile.json</pre></div>
+<div class="card"><h2>5. 2.3 面试（StateGraph 八节点）</h2><pre class="mermaid">flowchart LR
+    subgraph 浏览器
+        LS["localStorage<br/>examCenter.v1（游戏化 state）<br/>llmKey / llmBase / llmModel<br/>examCenter.uid / nickname"]
+    end
+    subgraph 用户目录["~/.exam-center/users/{uid}/"]
+        D["dirs/d_*.json<br/>每章节目录（course.quiz 题库 + 文件清单）"]
+        IDX["dirs/index.json<br/>目录索引（hasCode/theoryCount/practicalCount）"]
+        C["courses/*.json<br/>课程库镜像"]
+        IMP["imports/<br/>导入资料存档"]
+        PF["profile.json<br/>能力画像/历史/徽章/错题本"]
+        CUR["course.json<br/>当前课程"]
+        LG["logs/activity.log<br/>活动日志（JSONL，2MB×5 轮转）"]
+        IMPD["import-debug.log<br/>旧导入诊断（兼容保留）"]
+        TS["reset-ts<br/>重置时间戳墓碑（竞态防护）"]
+    end
+    subgraph 系统日志["~/.exam-center/"]
+        ALOG["logs/app.log<br/>启动/请求/未捕获异常"]
+    end
+    LS -.->|"saveState/loadState 同步"| PF</pre></div>
+<div class="card"><h2>6. 2.3 面试（StateGraph 八节点）</h2><pre class="mermaid">flowchart LR
+    subgraph 前端
+        FE["功能打点<br/>import/exam/interview/dir/settings"]
+        GE["window.onerror / unhandledrejection<br/>全局错误兜底"]
+        LG["logger.js<br/>JSONL 组装 + 50ms 批量"]
+    end
+    subgraph 后端
+        API["POST /api/log"]
+        ACT["users/{uid}/logs/activity.log"]
+        REQ["do_GET/do_POST 统一包装<br/>请求耗时 + 未捕获 traceback"]
+        APPF["logs/app.log"]
+        DIAG["GET /api/logs<br/>诊断中心读取"]
+    end
+    subgraph 用户
+        DC["GUI「🔍 诊断日志」<br/>过滤/导出/清空"]
+    end
+    FE --> LG
+    GE --> LG
+    LG --> API --> ACT
+    REQ --> APPF
+    DIAG --> DC
+    DC -->|"POST /api/logs-clear"| ACT</pre></div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "dark", themeVariables: { fontSize: "13px" } });
+</script>
+</body>
+</html>

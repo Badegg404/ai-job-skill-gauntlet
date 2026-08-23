@@ -244,8 +244,8 @@ function buildExamPrompt(conceptTxt, chapterTxt, mode, count, abilities, codeTxt
     : "题型大部分用 practical 代码客观题（practical.compareMode 填 \"code_choice\"）：必须引用上面「代码文件」里的真实代码（真实文件名/函数名/片段），类型在 spotlight（标注段作用，单选）/ functions（功能多选，multi=true）/ trace（输出预测，单选）/ bugfix（修复缺陷，单选）/ progression（多文件递进）/ compare（多文件对比）中多样化选取，附 options + correctIndex（数组）+ code 或 codeBlocks；少量（约 1/4）用 practical 写代码任务题（compareMode 填 \"llm_code\"）：给具体编码任务，附 referenceAnswer 和 scoringPoints（2-4 条）。";
 
   const jsonSchema = mode === "theory"
-    ? `{"questions": [{"type": "choice|true_false|fill_blank", "question": "题干", "options": ["A","B","C","D"], "correctIndex": 0, "correctAnswer": "答案", "fillAnswers": ["可接受答案"], "explanation": "讲解", "ability": "能力维度名", "difficulty": 2, "dimension": "${mode}", "chapterRef": null}]}`
-    : `{"questions": [{"type": "practical", "question": "题干", "practical": {"subtype": "spotlight|functions|trace|bugfix|progression|compare", "compareMode": "code_choice", "files": ["demo-2.py"], "code": "代码片段", "codeBlocks": [{"file": "demo-1.py", "code": "..."}], "highlightLines": [10], "multi": false, "options": ["A","B","C","D"], "correctIndex": [1], "referenceAnswer": "解析"}, "answer": "解析", "explanation": "讲解", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}, {"type": "practical", "question": "任务描述（含具体要求）", "practical": {"task": "具体编码任务", "codeContext": "可选的代码上下文/提示", "referenceAnswer": "参考实现代码", "scoringPoints": ["评分要点1","评分要点2"], "compareMode": "llm_code"}, "answer": "参考实现", "explanation": "讲解与评分要点", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}]}`;
+    ? `{"questions": [{"type": "choice|true_false|fill_blank", "question": "题干", "options": ["A","B","C","D"], "correctIndex": 0, "correctAnswer": "答案", "fillAnswers": ["可接受答案"], "explanation": "讲解（≤200字）", "ability": "能力维度名", "difficulty": 2, "dimension": "${mode}", "chapterRef": null}]}`
+    : `{"questions": [{"type": "practical", "question": "题干", "practical": {"subtype": "spotlight|functions|trace|bugfix|progression|compare", "compareMode": "code_choice", "files": ["demo-2.py"], "code": "代码片段", "codeBlocks": [{"file": "demo-1.py", "code": "..."}], "highlightLines": [10], "multi": false, "options": ["A","B","C","D"], "correctIndex": [1], "referenceAnswer": "解析"}, "answer": "解析", "explanation": "讲解（≤200字）", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}, {"type": "practical", "question": "任务描述（含具体要求）", "practical": {"task": "具体编码任务", "codeContext": "可选的代码上下文/提示", "referenceAnswer": "参考实现代码", "scoringPoints": ["评分要点1","评分要点2"], "compareMode": "llm_code"}, "answer": "参考实现", "explanation": "讲解与评分要点（≤200字）", "ability": "能力维度名", "difficulty": 4, "dimension": "practical", "chapterRef": null}]}`;
 
   return `你是一名 AI 岗位出题专家。请根据候选人的学习资料，生成 ${count} 道考核题。
 
@@ -288,14 +288,18 @@ ${jsonSchema}`;
  * ============================================================ */
 
 function buildCodeGradePrompt(q, p, userAns) {
+  // 数据统一方案 L1：素材统一 sanitizeMaterial（长度配置在 DataIO.INPUT_LIMITS）
+  const refTxt = DataIO.sanitizeMaterial([{ key: "reference", text: p.referenceAnswer || q.answer || "" }], { prefix: "" });
+  const ansTxt = DataIO.sanitizeMaterial([{ key: "userAnswer", text: userAns }], { prefix: "" });
+  const ctxTxt = DataIO.sanitizeMaterial([{ key: "codeContext", text: p.codeContext || "" }], { prefix: "" });
   return `你是一名资深 AI 工程师。请判分学生这道代码实战题。
 
 【任务】${p.task || q.question}
-${p.codeContext ? `【代码上下文】${p.codeContext}\n` : ""}【参考实现】
-${(p.referenceAnswer || q.answer || "").slice(0, 800)}
+${p.codeContext ? `【代码上下文】${ctxTxt}\n` : ""}【参考实现】
+${refTxt}
 
 【学生代码】
-${userAns.slice(0, 1500)}
+${ansTxt}
 
 请判断学生代码是否正确、可运行、思路是否合理。给出 0-100 整数分，并用一两句给出反馈（亮点 + 不足 + 改进建议）。只输出 JSON：
 {"score": 85, "feedback": "..."}`;
@@ -305,8 +309,8 @@ function buildReadingGradePrompt(q, userAns) {
   return `你是一名资深 AI 工程师。请判定学生对这道代码阅读题的回答是否准确抓住了代码的功能与关键步骤。
 
 【题目】${q.question}
-【参考答案】${(q.answer || "").slice(0, 800)}
-【学生回答】${userAns.slice(0, 800)}
+【参考答案】${DataIO.sanitizeMaterial([{ key: "reference", text: q.answer || "" }], { prefix: "" })}
+【学生回答】${DataIO.sanitizeMaterial([{ key: "userAnswerShort", text: userAns }], { prefix: "" })}
 
 请给出 0-100 整数分，并用一两句反馈（亮点 + 不足）。只输出 JSON：
 {"score": 85, "feedback": "..."}`;
@@ -327,8 +331,8 @@ function buildEssayGradePrompt(q, userAns) {
   return `你是一名资深的 AI 岗位面试官。请批改学生这道问答题的回答。
 
 【题目】${q.question}
-【参考答案】${(q.answer || "").slice(0, 600)}
-【学生回答】${userAns.slice(0, 800)}
+【参考答案】${DataIO.sanitizeMaterial([{ key: "referenceShort", text: q.answer || "" }], { prefix: "" })}
+【学生回答】${DataIO.sanitizeMaterial([{ key: "userAnswerShort", text: userAns }], { prefix: "" })}
 
 请给出 0-100 的整数分数，并用一两句话给出反馈（指出亮点与不足）。只输出 JSON：
 {"score": 85, "feedback": "..."}`;
@@ -404,7 +408,7 @@ function buildInterviewFollowPrompt(st, q, curQuestion, ans, tactics) {
 
 【题目类型】${q.type || "essay"}
 【你的问题】${curQuestion}
-【候选人回答】${ans.slice(0, 1200)}
+【候选人回答】${DataIO.sanitizeMaterial([{ key: "ivAnswer", text: ans }], { prefix: "" })}
 【本题已追问次数】${followed} 次
 【候选人累计弱回答次数】${weakCount} 次（答「不知道/不会/不清楚」或避重就轻）
 
@@ -468,13 +472,13 @@ ${weakCount >= 3 ? `- 【嘲讽】候选人累计 ${weakCount} 次答「不知�
 
 /* 从导入资料提炼「岗位通用面试题」：LLM 判断资料最贴近哪个岗位，并生成该岗位的场景面试题，作为面试出题的参考弹药 */
 function buildJobQuestionPrompt(course, jobNames) {
-  const concepts = (course.concepts || []).slice(0, 8)
-    .map((c) => `- ${c.name}：${(c.summary || "").slice(0, 60)}`).join("\n") || "（无）";
-  const chapters = (course.chapters || []).slice(0, 8)
-    .map((ch) => `- ${ch.title}：${(ch.summary || "").slice(0, 50)}`).join("\n") || "（无）";
+  // 数据统一方案 L1：job 出题素材统一 sanitizeMaterial
+  const concepts = DataIO.sanitizeMaterial((course.concepts || []).map((c) => ({ key: "jobConcept", title: c.name, text: c.summary })), { emptyText: "（无）" });
+  const chapters = DataIO.sanitizeMaterial((course.chapters || []).map((ch) => ({ key: "jobChapter", title: ch.title, text: ch.summary })), { emptyText: "（无）" });
+  const titleTxt = DataIO.sanitizeMaterial([{ key: "jobTitle", text: course.title || "" }], { prefix: "" });
   return `你是 AI 岗位面试题库整理员。以下是一份学习资料的概要：
 
-【资料标题】${(course.title || "").slice(0, 60)}
+【资料标题】${titleTxt}
 【核心概念】${concepts}
 【章节要点】${chapters}
 
