@@ -19,23 +19,6 @@
 
 > **In one line**: Import your study materials, then run the gauntlet of a simulated interviewer that probes, roasts, and even kicks you out — walk away with a 10-dimension skill radar + job-match report + gamified growth.
 
-> 🆕 **v2.0 — Question-Bank & LLM Exam Composition overhaul**
-> - **Per-chapter question banks**: every imported directory owns its bank; chapter exams draw from their chapter, comprehensive exams aggregate all chapters (theory 16 / practical 10, 2× the chapter counts).
-> - **LLM exam composition**: the LLM picks questions from the full bank with a scope-aware prompt (chapter: focus this chapter; comprehensive: cross-chapter variety + difficulty ladder); adaptive rule-based picking is the fallback.
-> - **Parallel import**: theory (16) + practical (10) are generated in two concurrent requests with per-batch status cards and cross-batch dedup; any failed batch rolls the whole import back with an explicit reason.
-> - **Practical questions**: code-choice objective tasks (spotlight / functions / trace / bugfix / progression) grounded in the real code from your materials; interview reference questions are now a curated 5 per directory, synthesized from the whole directory.
-> - Import failures (no LLM key, generation errors) are blocked or rolled back with a clear "import failed, reason: …" message — no more silent half-imports.
-
-> 🆕 **v2.1 — UI Overhaul & Unified Data Pipeline**
-> - **Product-showcase homepage**: Hero (value proposition + 4 capability tags + dual CTA) with a 340×340 neon radar (colored vertices ↔ 10-item legend), 4 static Showcase cards, "My Data" (real radar + recent activity), and a growth-incentive bar (next title progress + streak/badges/AP).
-> - **Persistent left sidebar**: grouped navigation (chapter exams / comprehensive exams / interview as top-level), click-to-collapse groups (remembered in localStorage), fixed floating while scrolling.
-> - **LLM data governance (3 layers)**: L1 input sanitization (web/dataio.js) → L2 unified llmJSON caller (all 7 direct fetches migrated) → L3 schema validation (web/schema.js, QUESTION_SCHEMA + 8 OBJECT_SCHEMAS). Behavior-equivalent fallbacks preserved (adaptive pick, fuzzy fill-blank match, min-count-0).
-> - **SVG icon system**: 53 Lucide icons replace control emojis; neon-gradient icons for the three exam modes; robot emoji replaced with SVG everywhere (modals/avatars/status).
-> - **Neon radar rewrite**: radial gradient fill (cyan→magenta→violet), dual-layer glow stroke, animated entry; color-dot vertices + HTML legend (10 dimensions).
-> - **Interview fixes**: loading now goes straight into the interview room (dead-code entry removed); exam-intro pages (theory/practical/interview, interview has a dedicated refined page with job cards + timeline + FAQ).
-> - **Product naming**: unified as "AI 技能考核中心 · AI Job Skill Gauntlet" (topbar neon title, sidebar brand, page title, reports).
-
-
 <div align="center">
 
 ![Home](docs/screenshot-home.png)
