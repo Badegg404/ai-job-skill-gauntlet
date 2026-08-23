@@ -4703,21 +4703,7 @@ async function init() {
   renderSidebar();   // 常驻左侧导航
   updateGamestat();
   goHome();
-  // 未配置 LLM → 弹一次性配置提醒（只弹一次，之后可在设置里随时配置）
-  if (!LLM_KEY && !localStorage.getItem("examCenter.llmGuided")) {
-    localStorage.setItem("examCenter.llmGuided", "1");
-    setTimeout(() => {
-      showModal({
-        iconHtml: icon("robot"),
-        title: "欢迎使用 AI 技能考核中心 · AI Job Skill Gauntlet",
-        text: "本系统的核心能力——出题、题目能力打标签、语义判分、岗位匹配——都由 LLM 驱动。建议先配置 LLM API Key（支持 DeepSeek 官方或中转站），才能完整体验理论 / 实战 / 面试三种考核。Key 仅保存在本机浏览器，浏览器直连 API，不会上传服务器。",
-        actions: [
-          { label: "⚙️ 去配置 LLM", primary: true, onClick: () => showSettings() },
-          { label: "稍后再说", onClick: () => {} },
-        ],
-      });
-    }, 500);
-  }
+  // 欢迎弹窗已移除（v2.1.1）：未配置 LLM 的引导由首页顶条「⚠️ 未配置 LLM」状态 + 设置页承担
 }
 
 document.addEventListener("DOMContentLoaded", init);
