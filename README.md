@@ -21,7 +21,7 @@
 
 <div align="center">
 
-![Home](docs/screenshot-home.png)
+![Home](docs/screenshot-home-v2.1.png)
 
 </div>
 

@@ -21,7 +21,7 @@
 
 <div align="center">
 
-![首页展示](docs/screenshot-home.png)
+![首页展示](docs/screenshot-home-v2.1.png)
 
 </div>
 
