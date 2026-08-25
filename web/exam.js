@@ -155,6 +155,7 @@ let examMode = "chapter";
 let answers = [];
 let examSeq = 0;            // 考核序号（竞态守卫）
 let isCrossExam = false;    // 是否综合考核（跨目录），用于跨课程徽章
+let examDirId = null;       // 当前考核所属目录（章节考核记录用，判断「已考核」标识）
 let wrongAttempts = 0;      // 当前题已答错次数（用于答错重试机制）
 let beforeRankIdx = 0;      // 本次考核前的境界序号（用于检测境界提升）
 
@@ -591,7 +592,7 @@ async function goHome() {
   // 最近动态（考核 + 面试合并，按时间取最近 3）
   const modeLabel = (m) => (typeof MODE_LABEL !== "undefined" && MODE_LABEL[m]) ? MODE_LABEL[m] : (m || "");
   const recentItems = [
-    ...(state.history || []).map((h) => ({ date: h.date, label: modeLabel(h.mode), val: h.score != null ? h.score + "/" + (h.total || 100) : "", fn: "showHistory()" })),
+    ...(state.history || []).map((h) => ({ date: h.date, label: modeLabel(h.mode), val: h.pct != null ? h.pct + " 分" : "", fn: "showHistory()" })),
     ...(state.interviewLogs || []).slice(0, 8).map((l) => ({ date: l.date, label: "面试 · " + (l.job || ""), val: l.score != null ? l.score + " 分" : "评分失败", fn: "showInterviewHistory()" })),
   ].filter((x) => x.date).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 3);
   const recentHtml = recentItems.length
@@ -634,7 +635,7 @@ async function goHome() {
   }, `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;color:var(--accent-2);font-family:var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px"><span style="color:#ff3df0">&gt;_</span> SYSTEM // AI 技能考核中心 · AI Job Skill Gauntlet</div>
-      <div style="font-size:11.5px;color:var(--text-2);font-family:var(--mono);display:flex;align-items:center;gap:9px">👤 ${esc(displayName())}<span style="color:var(--border)">|</span>${LLM_KEY ? icon("robot") + " " + esc(LLM_MODEL || "deepseek-chat") : "⚠️ 未配置 LLM"}</div>
+      <div style="font-size:11.5px;color:var(--text-2);font-family:var(--mono);display:flex;align-items:center;gap:9px">👤 ${esc(displayName())}<span style="color:var(--border)">|</span>${LLM_KEY ? icon("robot") + " " + esc(LLM_MODEL || "deepseek-v4-flash") : "⚠️ 未配置 LLM"}</div>
     </div>
 
     <!-- ① Hero：价值主张 + 双 CTA + 演示雷达 -->
@@ -770,10 +771,10 @@ function saveLLMSettings() {
   const k = $("#llm-key-input"), b = $("#llm-base-input"), m = $("#llm-model-input");
   if (!k || !b || !m) return;
   setLLMConfig(k.value, b.value, m.value);
-  Logger.info("settings.save", "LLM 设置已保存", { hasKey: !!k.value, base: b.value || "(默认)", model: m.value || "deepseek-chat" });
+  Logger.info("settings.save", "LLM 设置已保存", { hasKey: !!k.value, base: b.value || "(默认)", model: m.value || "deepseek-v4-flash" });
   // 保存后重渲染设置页，顶部摘要显示已保存的模型名 + 地址
   showSettings();
-  showToast(LLM_KEY ? `已保存：${LLM_MODEL || "deepseek-chat"}` : "⚠️ 已清除 LLM 配置（需配置后才能考核）");
+  showToast(LLM_KEY ? `已保存：${LLM_MODEL || "deepseek-v4-flash"}` : "⚠️ 已清除 LLM 配置（需配置后才能考核）");
 }
 
 /* ===== 设置 ===== */
@@ -787,7 +788,7 @@ function showSettings() {
       <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--accent)">${icon("robot", "lg")} LLM 出题引擎（必需）</div>
       <div style="font-size:12.5px;margin-bottom:12px;padding:9px 12px;border-radius:8px;${LLM_KEY ? "background:rgba(47,214,181,0.08);border:1px solid rgba(47,214,181,0.3);color:#2fd6b5" : "background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text-2)"}">
         ${LLM_KEY
-          ? `✅ 当前生效：<strong>${esc(LLM_MODEL || "deepseek-chat")}</strong> @ ${esc(LLM_BASE || "https://api.deepseek.com")}`
+          ? `✅ 当前生效：<strong>${esc(LLM_MODEL || "deepseek-v4-flash")}</strong> @ ${esc(LLM_BASE || "https://api.deepseek.com")}`
           : "⚠️ 未配置 LLM（无法考核）"}
       </div>
       <div style="font-size:11.5px;color:var(--text-1);line-height:1.8;margin-bottom:10px">
@@ -798,7 +799,7 @@ function showSettings() {
         <input type="text" id="llm-base-input" value="${esc(LLM_BASE)}" placeholder="API 地址（留空=官方 DeepSeek）https://api.deepseek.com" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
         <div style="display:flex;gap:9px">
           <input type="password" id="llm-key-input" value="${esc(LLM_KEY)}" placeholder="API Key (sk-...)" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
-          <input type="text" id="llm-model-input" value="${esc(LLM_MODEL)}" placeholder="模型名 (deepseek-chat)" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
+          <input type="text" id="llm-model-input" value="${esc(LLM_MODEL)}" placeholder="模型名 (deepseek-v4-flash)" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:9px;color:var(--text-0);font-size:13px;outline:none">
         </div>
         <div style="display:flex;gap:9px">
           <button class="exam-btn primary" onclick="saveLLMSettings()">${icon("save")} 保存设置</button>
@@ -914,12 +915,12 @@ function testLLMConnection() {
   const model = ($("#llm-model-input") || {}).value || LLM_MODEL;
   if (!key) { showToast("⚠️ 请先填写 API Key"); return; }
   const url = (base || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
-  Logger.info("settings.test-llm", "测试 LLM 连接", { base: base || "(默认)", model: model || "deepseek-chat" });
+  Logger.info("settings.test-llm", "测试 LLM 连接", { base: base || "(默认)", model: model || "deepseek-v4-flash" });
   showToast("🔌 正在测试连接…");
   fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-    body: JSON.stringify({ model: model || "deepseek-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
+    body: JSON.stringify({ model: model || "deepseek-v4-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
   }).then(async (r) => {
     const txt = await r.text().catch(() => "");
     let ok = false;
@@ -1173,7 +1174,7 @@ async function llmJSON(opts) {
   // 两者都带校验失败反馈重出（Agently custom() 机制）
   if (!LLM_KEY) return [];
   const base = String(LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  const model = LLM_MODEL || "deepseek-v4-flash";
   const maxTokens = opts.maxTokens || (opts.part === "theory" ? 4500 : opts.part === "practical" ? 7000 : 10000);
   const system = opts.system || SYSTEM.examiner;
   const prompt = opts.prompt || "";
@@ -1251,12 +1252,12 @@ async function llmJSON(opts) {
       // 空响应 = 服务限流/异常：最多重试 2 次，不空转
       if (!rawContent.length) {
         reportDebug("llm-empty", { part, attempt });
-        if (attempt >= 2) {
+        if (attempt >= 3) {
           lastErr = new Error("LLM 返回空内容（服务可能限流），已重试 " + attempt + " 次");
           reportDebug("llm-fail", { part, msg: lastErr.message });
           throw lastErr;
         }
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 2500 * attempt));   // 退避：2.5s / 5s，给限流恢复时间
         continue;
       }
       // 通用对象模式：解析成功且通过校验即返回（面试出题/追问/评分）
@@ -1274,12 +1275,12 @@ async function llmJSON(opts) {
     // 空响应（rawLen 0）= 服务限流/异常，重出大概率也空：最多重试 2 次（间隔 1.5s），不空转 3 次
     if (!rawContent.length) {
       reportDebug("llm-empty", { part, attempt });
-      if (attempt >= 2) {
+      if (attempt >= 3) {
         // 服务限流：不再 throw（否则理论题会被实战空响应连坐全丢）——返回已有（宁缺毋滥），主流程软处理
         reportDebug("llm-empty-final", { part });
         return lastNonEmpty || [];
       }
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 2500 * attempt));   // 退避：2.5s / 5s，给限流恢复时间
       continue;
     }
     const qs = extractLLMQuestions(data);
@@ -1311,7 +1312,7 @@ async function browserLLMGenerate(course, part, count) {
   // count: 本次期望生成题数（首轮 16/10，补足轮传缺失量）；缺省按 part 回退 14/8/26
   if (!LLM_KEY) return [];
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  const model = LLM_MODEL || "deepseek-v4-flash";
 
   // 课程素材摘要（用于生成题目）
   // 数据统一方案 L1：素材统一走 sanitizeMaterial（长度配置集中在 DataIO.INPUT_LIMITS）
@@ -1686,7 +1687,7 @@ async function handleImportFileList(mdFiles) {
       const pracN = q.filter((x) => (x.dimension || inferDimension(x)) === "practical").length;
       status.innerHTML = `
         ✅ 已创建章节目录「<strong style="color:var(--accent)">${esc(data.dir.title)}</strong>」<br>
-        📚 生成 <strong style="color:var(--accent)">${q.length}</strong> 题（理论 ${theoryN} · 实战 ${pracN} · 面试 ${q.filter((x) => x.interview).length}）· ${fileCount} 个文件<br>
+        📚 生成 <strong style="color:var(--accent)">${theoryN + pracN}</strong> 题（理论 ${theoryN} · 实战 ${pracN}）· ${fileCount} 个文件<br>
         ${dupCount ? `⚠️ 有 ${dupCount} 个文件重复，已跳过` : ""}
         ${dupRows}
         ${theoryWarn ? `<span style="color:#ffb84d">${theoryWarn}</span><br>` : ""}
@@ -2573,6 +2574,7 @@ function startExam(mode) {
   }
   examMode = mode;
   isCrossExam = true;   // 综合考核 = 跨目录
+  examDirId = null;
   Logger.begin("exam");
   Logger.info("exam.start", "开始综合考核", { mode });
   const seq = ++examSeq;   // A1：竞态守卫，旧请求返回不覆盖新试卷
@@ -2985,7 +2987,7 @@ async function llmGradeCode(q, userAns) {
   if (!box) return;
   const p = q.practical || {};
   const base = (LLM_BASE || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = LLM_MODEL || "deepseek-chat";
+  const model = LLM_MODEL || "deepseek-v4-flash";
   const prompt = buildCodeGradePrompt(q, p, userAns);
   box.innerHTML = `<div style="font-size:13.5px;color:var(--accent)">${icon("robot")} LLM 正在判分…</div>`;
   // 数据统一方案 P1：迁移到 llmJSON 统一调用器（格式约束/反馈重出/日志/空响应软处理）
@@ -3327,7 +3329,7 @@ function showResult() {
     abilityPct[ab] = s.total ? Math.round((s.got / s.total) * 100) : 0;
   }
   // 记录历史
-  state.history.push({ date: new Date().toISOString(), mode: examMode, score: correctCount, total: totalQ, pct, abilities: abilityPct, cross: isCrossExam });   // cross: 章节考核(false) / 综合考核(true)，供引导条判定
+  state.history.push({ date: new Date().toISOString(), mode: examMode, score: correctCount, total: totalQ, pct, abilities: abilityPct, cross: isCrossExam, dirId: isCrossExam ? null : examDirId });   // dirId: 章节考核所属目录（「已考核」标识依据）
   // C4：跨课程徽章仅在综合考核（聚合多目录）时解锁
   if (isCrossExam) state.crossExam = true;
   if (examMode === "practical") state.practicalDone = true;
@@ -3414,10 +3416,10 @@ function showResult() {
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:14px">← 返回主页</button>
     <div class="exam-result-hero">
       <div class="exam-score-big" id="score-num">0</div>
-      <div style="font-size:11.5px;color:var(--text-2);margin-top:4px">正确 ${correctCount}/${totalQ} · ${pct}%</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:4px">得分 <strong style="color:var(--accent)">${pct} 分</strong> · 正确 ${correctCount}/${totalQ}</div>
       <div class="exam-stars">${stars}</div>
       <div class="exam-grade" style="color:${pct >= 70 ? "#00e5ff" : pct >= 50 ? "#ffb84d" : "#ff6b6b"}">${grade}</div>
-      <div class="exam-combo-stat">🔥 最高连击 ${state.bestCombo} · ⚡ 本场得分 ${rightCount}/${totalQ} · 📅 连续学习 ${state.streak} 天</div>
+      <div class="exam-combo-stat">🔥 最高连击 ${state.bestCombo} · ⚡ 本场得分 ${pct} 分 · 📅 连续学习 ${state.streak} 天</div>
       <div style="margin-top:8px;font-size:13.5px;color:var(--text-1)">${title.icon} ${title.title} · 成就点 <strong style="color:var(--warn)">${ap}</strong></div>
       ${newBadgeHtml}
     </div>
@@ -3782,6 +3784,7 @@ async function showLibrary() {
     const hasCode = d.hasCode === undefined ? d.practicalCount > 0 : !!d.hasCode;
     const theoryReady = d.theoryCount >= 8;   // 理论考核需 ≥8 道（不足置灰）
     const practicalReady = d.practicalCount >= 5;   // 实战考核需 ≥5 道（不足置灰）
+    const dirRecs = (state.history || []).filter((h) => h.dirId === d.id);   // 该目录已考核记录（已考核标识 + 最高分）
     const needRegen = !theoryReady || (hasCode && !practicalReady);   // 补出题按钮露出条件：任一方向不足
     return `
     <div class="card" style="margin-bottom:14px">
@@ -3790,10 +3793,12 @@ async function showLibrary() {
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="display:flex;align-items:center">${icon("book-open", "lg")}</span>
             <span style="font-size:16px;font-weight:800;color:var(--text-0)">${esc(d.title)}</span>
+            ${dirRecs.length ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:2px 9px;border-radius:999px;background:rgba(47,214,181,0.08);border:1px solid rgba(47,214,181,0.3);color:#2fd6b5;font-family:var(--mono)">${icon("check")} 已考核 · 最好成绩 ${Math.max(...dirRecs.map((h) => h.pct))}%</span>` : ""}
             <button class="exam-btn ghost" style="padding:4px 10px;font-size:11.5px" onclick="renameDir('${d.id}', '${jsStr(d.title)}')">${icon("edit-3")} 改名</button>
           </div>
-          <div style="font-size:12px;color:var(--text-2);margin-top:6px;font-family:var(--mono)">
-            ${d.fileCount} 个文件 · ${d.quizCount} 题（理论 ${d.theoryCount} · 实战 ${d.practicalCount} · 面试 ${d.interviewCount}）
+          <div style="display:flex;gap:16px;margin-top:7px;font-size:12px;font-family:var(--mono);flex-wrap:wrap;align-items:center">
+            <span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);padding:2px 9px;border-radius:6px;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15)">${icon("book-open")} 理论题储备 <b style="color:var(--accent);font-weight:800">${d.theoryCount}</b></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);padding:2px 9px;border-radius:6px;background:rgba(255,61,240,0.05);border:1px solid rgba(255,61,240,0.15)">${icon("wrench")} 实战题储备 <b style="color:var(--accent-2);font-weight:800">${d.practicalCount}</b></span>
           </div>
           ${!theoryReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 理论题不足（${d.theoryCount}/8）——点「补出题」补齐后即可考核</div>` : ""}
           ${hasCode && !practicalReady ? `<div style="font-size:11.5px;color:#ffb84d;margin-top:3px">⚠️ 实战题不足（${d.practicalCount}/5）——点「补出题」补齐后即可考核</div>` : ""}
@@ -4024,6 +4029,7 @@ async function startDirExam(dirId, mode) {
   }
   examMode = mode;
   isCrossExam = false;  // 单目录考核，非跨课程
+  examDirId = dirId;
   const seq = ++examSeq;   // A1：竞态守卫
   const loading = showExamLoading(mode);
   loading.log("读取目录数据");
@@ -4099,9 +4105,9 @@ function showHistory() {
     <div class="exam-review-item">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="eri-q" style="margin:0">${MODE_LABEL[h.mode] || esc(h.mode)} · ${h.date.slice(0, 16).replace("T", " ")}</div>
-        <div style="font-size:23px;font-weight:800;color:${h.pct >= 70 ? "#00e5ff" : "#ffb84d"}">${h.pct}%</div>
+        <div style="font-size:23px;font-weight:800;color:${h.pct >= 70 ? "#00e5ff" : "#ffb84d"}">${h.pct} 分</div>
       </div>
-      <div style="font-size:11.5px;color:var(--text-2);margin-top:6px">${h.score}/${h.total} · ${Object.entries(h.abilities || {}).map(([a, p]) => `${a} ${p}%`).join(" · ")}</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:6px">得分 ${h.pct} 分 · ${Object.entries(h.abilities || {}).map(([a, p]) => `${a} ${p}分`).join(" · ")}</div>
     </div>`).join("") || "<div class='empty'>还没有考核记录，去完成一次考核吧！</div>";
   render(null, `
     <button class="exam-btn ghost" onclick="goHome()" style="margin-bottom:18px">← 返回</button>
@@ -4360,6 +4366,11 @@ function showExamIntro(mode) {
         </div>
       </div>
 
+      <!-- 综合考核：聚合题库统计（与章节卡片「储备」展示逻辑不同） -->
+      <div id="exam-intro-stats" class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 16px">
+        <span style="color:var(--text-2);font-size:12.5px;font-family:var(--mono)">聚合统计加载中…</span>
+      </div>
+
       <div class="card" style="margin-bottom:14px">
         <div style="font-size:14.5px;font-weight:700;color:var(--text-0);margin-bottom:10px;display:flex;align-items:center;gap:9px">${icon("info", "lg")} 考核说明</div>
         <div style="font-size:13.5px;color:var(--text-1);line-height:1.9">${cfg.summary}</div>
@@ -4368,15 +4379,37 @@ function showExamIntro(mode) {
         </div>
       </div>
 
-      <div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
+      <!-- 前置要求：仅未配置 LLM 时显示（已配置则不提示；无目录由上方聚合统计卡引导） -->
+      ${LLM_KEY ? "" : `<div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
         <span style="color:#ffb84d">${icon("alert-triangle")}</span>
         <div style="font-size:12.5px;color:var(--text-1)">${cfg.requires}</div>
-      </div>
+      </div>`}
 
       <button class="exam-btn primary exam-intro-cta" onclick="${cfg.start}">${icon("zap")} ${cfg.cta}</button>
       <div style="margin-top:12px;font-size:11.5px;color:var(--text-2)">点击后进入加载动画：LLM 组卷 / 面试准备 → 完成后自动进入考核。</div>
     </div>
   `);
+  // 异步加载聚合题库统计（综合考核 = 聚合全部目录，展示逻辑与章节卡片不同）
+  refreshDirs().then((dirs) => {
+    const el = document.getElementById("exam-intro-stats");
+    if (!el) return;
+    if (!dirs.length) {
+      el.innerHTML = '<span style="color:var(--text-2);font-size:12.5px;font-family:var(--mono)">暂无目录题库，先去「导入资料」添加学习资料</span>';
+      return;
+    }
+    const t = dirs.reduce((s, d) => s + (d.theoryCount || 0), 0);
+    const p = dirs.reduce((s, d) => s + (d.practicalCount || 0), 0);
+    // 综合考核战绩：已考次数 + 最高分（cross=true 的记录）
+    const crossRecs = (typeof state !== "undefined" && state.history) ? state.history.filter((h) => h.cross === true) : [];
+    const doneHtml = crossRecs.length
+      ? `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);font-size:12px;font-family:var(--mono);padding:2px 9px;border-radius:6px;background:rgba(47,214,181,0.07);border:1px solid rgba(47,214,181,0.25)">${icon("trophy")} 综合考核已考 <b style="color:#2fd6b5;font-weight:800">${crossRecs.length}</b> 次 · 最好成绩 <b style="color:#2fd6b5;font-weight:800">${Math.max(...crossRecs.map((h) => h.pct))}%</b></span>`
+      : "";
+    el.innerHTML = `
+      <span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);font-size:12.5px;font-family:var(--mono)">${icon("layers", "lg")} 聚合 ${dirs.length} 个目录题库</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);font-size:12px;font-family:var(--mono);padding:2px 9px;border-radius:6px;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15)">${icon("book-open")} 理论题储备 <b style="color:var(--accent);font-weight:800">${t}</b></span>
+      <span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-1);font-size:12px;font-family:var(--mono);padding:2px 9px;border-radius:6px;background:rgba(255,61,240,0.05);border:1px solid rgba(255,61,240,0.15)">${icon("wrench")} 实战题储备 <b style="color:var(--accent-2);font-weight:800">${p}</b></span>
+      ${doneHtml}`;
+  }).catch(() => { /* 统计失败静默 */ });
 }
 
 /* 面试考核介绍页（精致版）：岗位预览 + 流程时间线 + 机制/产出双栏 + FAQ */
@@ -4456,10 +4489,10 @@ function renderInterviewIntro() {
         <div class="iv-faq">${faqs}</div>
       </div>
 
-      <div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
+      ${LLM_KEY ? "" : `<div class="card" style="margin-bottom:20px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-color:rgba(255,184,77,0.35);background:rgba(255,184,77,0.05)">
         <span style="color:#ffb84d">${icon("alert-triangle")}</span>
         <div style="font-size:12.5px;color:var(--text-1)">需配置 LLM（面试由 AI 面试官驱动）；建议先完成理论/实战考核再挑战面试。</div>
-      </div>
+      </div>`}
 
       <button class="exam-btn primary exam-intro-cta" onclick="startInterview()">${icon("messages-square")} 开始面试考核（先选岗位）</button>
       <div style="margin-top:12px;font-size:11.5px;color:var(--text-2)">点击后进入选岗页面 → 开始面试。面试全程 LLM 驱动，结束后自动评分存档。</div>
@@ -4707,3 +4740,12 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// Logo 悬停彩蛋：平时静态渐变（GPU 零开销），鼠标悬停时渐变流动 2 秒（SMIL beginElement 触发）
+document.addEventListener("DOMContentLoaded", () => {
+  const logo = document.querySelector(".logo-title");
+  if (!logo) return;
+  logo.addEventListener("mouseenter", () => {
+    logo.querySelectorAll("animate").forEach((a) => { try { a.beginElement(); } catch (e) { /* SMIL 不可用时忽略 */ } });
+  });
+});

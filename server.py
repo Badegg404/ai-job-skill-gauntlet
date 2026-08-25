@@ -213,6 +213,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -340,12 +341,13 @@ class CourseHandler(SimpleHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def _read_body(self, max_bytes=5 * 1024 * 1024):
-        """S-4 加固：请求体长度上限（默认 5MB），超限返回空体（由调用方按解析失败处理）。"""
+    def _read_body(self, max_bytes=50 * 1024 * 1024):
+        """请求体长度上限（默认 50MB，导入资料可能较大）；超限返回空体并记录日志。"""
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
             return b""
         if length > max_bytes:
+            log_json(APP_LOGGER, "warn", "http.body-too-large", "请求体超过上限", {"length": length, "max": max_bytes})
             return b""
         return self.rfile.read(length)
 
