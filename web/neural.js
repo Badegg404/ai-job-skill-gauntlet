@@ -15,14 +15,21 @@
   const mouse = { x: -9999, y: -9999, active: false };
 
   const COLORS = ["0,229,255", "255,61,240", "176,38,255", "0,255,200"];  // cyan / magenta / violet / aqua
-  const COUNT = 110;         // 粒子数量（根据屏幕大小自适应）
-  const LINK_DIST = 150;     // 连线距离
+  const COUNT = 60;          // 粒子数量（性能优化：原 110 → 60，GPU 负载约减半）
+  const LINK_DIST = 120;     // 连线距离（性能优化：减少连线数量）
   const MOUSE_LINK = 200;    // 鼠标连线距离
   const MOUSE_PULL = 0.25;   // 鼠标引力系数
 
   function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
+    // 性能优化：canvas 渲染分辨率 1x（粒子是小光点，retina 下视觉几乎无差；像素量比 2x 减 75%）
+    const dpr = 1;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     initParticles();
   }
 
@@ -46,10 +53,18 @@
     }
   }
 
-  function step() {
+  let lastT = 0;
+  function step(t) {
+    // 性能优化：帧率封顶 24fps；运动按时间差缩放，速度不随帧率变化
+    // BUG-FIX：首帧 lastT=0 时必须先画（原实现首帧 dt 恒 <41 导致粒子永不绘制）
+    const dt = lastT ? Math.min(t - lastT, 100) : 41;
+    const speedK = dt / 16.7;
+    if (dt < 41) { raf = requestAnimationFrame(step); return; }
+    lastT = t;
     ctx.clearRect(0, 0, W, H);
 
-    // ---- 连线（底层）----
+    // ---- 连线（底层）：按 颜色×透明度级别 分组，Path2D 合并，stroke 从数百次降到 ≤20 次（性能优化）----
+    const lineGroups = {};   // "color|lv" -> Path2D（lv: 0-4 透明度级别，视觉保持连续感）
     for (let i = 0; i < particles.length; i++) {
       const a = particles[i];
       for (let j = i + 1; j < particles.length; j++) {
@@ -57,15 +72,22 @@
         const dx = a.x - b.x, dy = a.y - b.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < LINK_DIST) {
-          const alpha = (1 - dist / LINK_DIST) * 0.14 * Math.min(a.z, b.z);
-          ctx.strokeStyle = `rgba(${a.color},${alpha})`;
-          ctx.lineWidth = 0.7;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
+          const lv = Math.min(4, (((1 - dist / LINK_DIST) * Math.min(a.z, b.z) * 12) | 0));
+          const key = a.color + "|" + lv;
+          let g = lineGroups[key];
+          if (!g) { g = lineGroups[key] = new Path2D(); }
+          g.moveTo(a.x, a.y);
+          g.lineTo(b.x, b.y);
         }
       }
+    }
+    // 分组一次性绘制：每 颜色×级别 一次 stroke（原每对连线一次 stroke）
+    ctx.lineWidth = 0.7;
+    for (const key in lineGroups) {
+      const sep = key.indexOf("|");
+      const alpha = 0.02 + (parseInt(key.slice(sep + 1), 10) + 1) * 0.024;
+      ctx.strokeStyle = `rgba(${key.slice(0, sep)},${alpha})`;
+      ctx.stroke(lineGroups[key]);
     }
 
     // ---- 鼠标连线 + 引力（半透明，鼠标附近）----
@@ -91,11 +113,11 @@
 
     // ---- 粒子 ----
     for (const p of particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      // 阻尼：让引力效果平缓回落
-      p.vx *= 0.985;
-      p.vy *= 0.985;
+      p.x += p.vx * speedK;
+      p.y += p.vy * speedK;
+      // 阻尼：让引力效果平缓回落（按帧率缩放）
+      p.vx *= Math.pow(0.985, speedK);
+      p.vy *= Math.pow(0.985, speedK);
       // 边界回弹
       if (p.x < -20) p.x = W + 20;
       if (p.x > W + 20) p.x = -20;
@@ -107,13 +129,13 @@
       const glow = 0.55 + 0.35 * Math.sin(p.phase);
       const r = p.r;
 
-      // 光晕
-      const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 6);
-      halo.addColorStop(0, `rgba(${p.color},${0.32 * glow * p.z})`);
+      // 光晕（柔和径向渐变：中心亮边缘透明，避免硬边光圈感；canvas 已 1x+24fps，开销可接受）
+      const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 5);
+      halo.addColorStop(0, `rgba(${p.color},${0.26 * glow * p.z})`);
       halo.addColorStop(1, `rgba(${p.color},0)`);
       ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r * 6, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, r * 5, 0, Math.PI * 2);
       ctx.fill();
 
       // 核心亮点

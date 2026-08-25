@@ -95,7 +95,7 @@ body::after {
   border-top: 1px solid rgba(0, 229, 255, 0.08);
   border-bottom: 1px solid rgba(0, 229, 255, 0.08);
   z-index: 0;
-  animation: scanMove 9s linear infinite;
+  /* 性能优化：mix-blend-mode 每帧全屏 GPU 混合；扫描线静止后 blend 只合成一次，视觉无差别 */
   mix-blend-mode: screen;
 }
 @keyframes scanMove {
@@ -488,19 +488,11 @@ button.svg-btn, .svg-btn {
   letter-spacing: 2px;
   text-transform: uppercase;
 }
-/* 主标题霓虹灯牌：青→品红→紫流动渐变 + 多层辉光 */
+/* 主标题：SVG 渐变流体（stop-color 颜色循环，仅 logo 小框重绘，GPU 低）——辉光由 SVG 内 filter 承担 */
 .logo-title {
-  background: linear-gradient(90deg, #00e5ff, #ff3df0, #b026ff, #00e5ff);
-  background-size: 250% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: logoShine 7s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
   filter: drop-shadow(0 0 5px rgba(0, 229, 255, 0.55)) drop-shadow(0 0 14px rgba(255, 61, 240, 0.35));
-}
-@keyframes logoShine {
-  0% { background-position: 0% center; }
-  100% { background-position: 250% center; }
 }
 .logo-cursor {
   font-family: var(--mono);
