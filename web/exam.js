@@ -2597,37 +2597,17 @@ function startExam(mode) {
         }
       }
     }
-    // LLM 从全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
-    loading.log("LLM 从全题库动态挑选组卷");
-    loading.setStatus("LLM 正在从题库组卷");
-    const stopP1 = loading.autoProgress(60, 74);
-    const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 16 : 10, "cross");
-    stopP1();
+    // 程序化组卷：从聚合题库随机抽取（难度/薄弱维度加权 + 反馈坏题剔除 + 随机），不依赖 LLM 现出题
+    loading.log("从全题库随机组卷");
     loading.setProgress(75);
-    filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 16 : 10);
-    loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
+    filtered = adaptivePick(filtered, mode === "theory" ? 16 : 10);
+    loading.log("题库组卷 → " + filtered.length + " 题（程序随机组卷 · 回顾题稍后注入）");
     if (!filtered.length) {
       showToast("⚠️ 暂无题目，请先导入资料");
       goHome();
       return;
     }
-    // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
-    if (LLM_KEY && filtered.length < (mode === "theory" ? 16 : 10)) {
-      const need = (mode === "theory" ? 16 : 10) - filtered.length;
-      loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
-      loading.setStatus("LLM 动态补充缺题");
-      const stopP2 = loading.autoProgress(75, 94);
-      try {
-        const dyn = await llmExamQuestions(courses, mode, need);
-        if (seq !== examSeq) return;
-        if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 16 : 10);
-      } catch (e) { /* 忽略 */ } finally {
-        stopP2();
-        loading.setProgress(95);
-      }
-    } else {
-      loading.setProgress(95);
-    }
+    loading.setProgress(95);
     // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
     loading.log("注入回顾题（错题间隔重考）");
     filtered = injectReviewQuestions(filtered, mode);
@@ -4100,33 +4080,12 @@ async function startDirExam(dirId, mode, chapter) {
   if (!filtered.length) {
     filtered = dirQuiz.filter((q) => inChapter(q) && (mode === "theory" ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type) : q.type === "practical"));
   }
-  // LLM 从本章节全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
-  loading.log("LLM 从本章题库动态挑选组卷");
-  loading.setStatus("LLM 正在从本章题库组卷");
-  const stopP1 = loading.autoProgress(60, 74);
-  const llmPicked = await llmPickQuestions(filtered, mode, mode === "theory" ? 8 : 5, "chapter");
-  stopP1();
+  // 程序化组卷：从本章题库随机抽取（难度/薄弱维度加权 + 反馈坏题剔除 + 随机），不依赖 LLM 现出题
+  loading.log("从本章题库随机组卷");
   loading.setProgress(75);
-  filtered = (llmPicked && llmPicked.length) ? llmPicked : adaptivePick(filtered, mode === "theory" ? 8 : 5);
-  loading.log("题库组卷 → " + filtered.length + " 题（LLM 挑选 / 程序兜底 · 回顾题稍后注入）");
+  filtered = adaptivePick(filtered, mode === "theory" ? 8 : 5);
+  loading.log("题库组卷 → " + filtered.length + " 题（程序随机组卷 · 回顾题稍后注入）");
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
-  // 题库不足时，LLM 动态生成补足缺口（不替换 LLM 已挑的题，避免稀释组卷质量）
-  if (LLM_KEY && filtered.length < (mode === "theory" ? 8 : 5)) {
-    const need = (mode === "theory" ? 8 : 5) - filtered.length;
-    loading.log("题库不足 → LLM 动态生成 " + need + " 道补足");
-    loading.setStatus("LLM 动态补充缺题");
-    const stopP2 = loading.autoProgress(75, 94);
-    try {
-      const dyn = await llmExamQuestions([dd.course], mode, need);
-      if (seq !== examSeq) return;
-      if (dyn && dyn.length) filtered = filtered.concat(dyn).slice(0, mode === "theory" ? 8 : 5);
-    } catch (e) { /* 忽略 */ } finally {
-      stopP2();
-      loading.setProgress(95);
-    }
-  } else {
-    loading.setProgress(95);
-  }
   // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
   loading.log("注入回顾题（错题间隔重考）");
   filtered = injectReviewQuestions(filtered, mode);

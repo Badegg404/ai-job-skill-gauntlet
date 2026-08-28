@@ -434,8 +434,8 @@ test("综合考核题量（16:10）与章节（8:5）", () => {
   const sd = raw("startDirExam.toString()");
   assert.ok(se.includes("16 : 10"), "综合考核理论16/实战10");
   assert.ok(sd.includes("8 : 5"), "章节考核理论8/实战5");
-  assert.ok(se.includes('"cross"'), "综合考核传 cross 场景");
-  assert.ok(sd.includes('"chapter"'), "章节考核传 chapter 场景");
+  assert.ok(se.includes('adaptivePick(filtered, mode === "theory" ? 16 : 10)'), "综合考核程序组卷");
+  assert.ok(sd.includes('adaptivePick(filtered, mode === "theory" ? 8 : 5)'), "章节考核程序组卷");
 });
 test("llmPickQuestions 容错：字符串编号归一化 + 不足补齐", () => {
   const src = raw("llmPickQuestions.toString()");
@@ -443,12 +443,14 @@ test("llmPickQuestions 容错：字符串编号归一化 + 不足补齐", () => 
   assert.ok(src.includes("shuffle(rest)"), "不足 count 应随机补齐");
   assert.ok(src.includes("slice(0, 100)"), "候选题上限放宽到 100");
 });
-test("组卷流程：LLM 吃全题库，adaptivePick 只做回退", () => {
+test("组卷流程：程序随机组卷（题库优先，不再由 LLM 现出题）", () => {
   const se = raw("startExam.toString()");
-  const iLlm = se.indexOf("llmPickQuestions(filtered, mode");
-  const iFallback = se.indexOf("adaptivePick(filtered, mode");
-  assert.ok(iLlm >= 0 && iFallback >= 0, "LLM 挑选与程序回退都应存在");
-  assert.ok(iLlm < iFallback, "LLM 先挑全题库、adaptivePick 兜底");
+  const sd = raw("startDirExam.toString()");
+  assert.ok(se.includes("adaptivePick(filtered, mode"), "综合考核程序组卷 adaptivePick");
+  assert.ok(sd.includes("adaptivePick(filtered, mode"), "章节考核程序组卷 adaptivePick");
+  assert.ok(!se.includes("llmPickQuestions(filtered, mode"), "综合组卷不再调用 LLM 挑选");
+  assert.ok(!se.includes("llmExamQuestions("), "综合组卷不再由 LLM 动态出题");
+  assert.ok(!sd.includes("llmPickQuestions(filtered, mode"), "章节组卷不再调用 LLM 挑选");
 });
 
 console.log("\n== 徽章系统（技术向徽章 + 解锁判定） ==");
