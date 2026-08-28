@@ -3851,6 +3851,27 @@ async function showDirDetail(dirId) {
       <button class="exam-btn ghost" style="color:#ff6b6b;border-color:rgba(255,107,107,0.4);padding:5px 12px;font-size:12px" onclick="deleteDirFile('${dirId}', '${jsStr(f.filename)}')">🗑️ 删除</button>
     </div>`).join("");
 
+  // 按章分组统计（章节考核粒度：只考本章的题）
+  const chapMap = {};
+  for (const q of quiz) {
+    const ch = normChapter(q.chapterRef || q.chapter);
+    if (!chapMap[ch]) chapMap[ch] = { theory: 0, practical: 0 };
+    const dim = (q.dimension || inferDimension(q));
+    if (dim === "theory") chapMap[ch].theory++;
+    else if (dim === "practical") chapMap[ch].practical++;
+  }
+  const chapRows = Object.keys(chapMap).sort((a, b) => a.localeCompare(b, "zh")).map((ch) => {
+    const g = chapMap[ch];
+    return `<div style="display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px dashed var(--border);flex-wrap:wrap">
+      <span style="flex:1;min-width:120px;font-size:13px;font-weight:700;color:var(--text-0)">${icon("book-open")} ${esc(ch)}</span>
+      <span style="font-size:11.5px;color:var(--text-2);font-family:var(--mono)">理论 ${g.theory} · 实战 ${g.practical}</span>
+      <span style="display:flex;gap:8px">
+        <button class="exam-btn" style="padding:5px 12px;font-size:12px" ${g.theory >= 8 ? `onclick="startDirExam('${dirId}', 'theory', '${jsStr(ch)}')"` : `disabled style="opacity:0.4;cursor:not-allowed" title="本章理论题不足 8 道"`}>理论考核</button>
+        <button class="exam-btn" style="padding:5px 12px;font-size:12px" ${g.practical >= 5 ? `onclick="startDirExam('${dirId}', 'practical', '${jsStr(ch)}')"` : `disabled style="opacity:0.4;cursor:not-allowed" title="本章实战题不足 5 道"`}>实战考核</button>
+      </span>
+    </div>`;
+  }).join("");
+
   render(null, `
     <button class="exam-btn ghost" onclick="showLibrary()" style="margin-bottom:18px">← 返回目录列表</button>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
@@ -3866,8 +3887,17 @@ async function showDirDetail(dirId) {
       ${fileRows || "<div class='empty'>目录内暂无文件</div>"}
     </div>
 
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:700;color:var(--accent)">${icon("book-open")} 按章考核（只考本章题目）</div>
+        <div style="font-size:11px;color:var(--text-2);font-family:var(--mono)">章节名已自动归一（如"第2章 Function Calling"→"第2章"）</div>
+      </div>
+      ${chapRows || '<div class="empty">题库未标注章节，无法按章考核（可用下方全目录考核）</div>'}
+    </div>
+
     <div class="card">
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12.5px;color:var(--text-2);font-family:var(--mono)">全目录考核：</span>
         <button class="exam-btn primary" onclick="startDirExam('${dirId}', 'theory')">📘 理论考核</button>
         <button class="exam-btn" onclick="startDirExam('${dirId}', 'practical')">🛠️ 实战考核</button>
         <button class="exam-btn ghost" onclick="renameDir('${dirId}', '${jsStr(dd.title)}')">✏️ 改名</button>
@@ -4012,7 +4042,18 @@ async function deleteDirFile(dirId, filename) {
 }
 
 /* 针对某个目录进行理论/实战考核 */
-async function startDirExam(dirId, mode) {
+/* 章节名归一化：'2' / '第2章' / '第2章 Function Calling' → '第2章'；无 → '未分章' */
+function normChapter(ch) {
+  if (!ch) return "未分章";
+  const s = String(ch).trim();
+  let m = s.match(/第\s*([0-9一二三四五六七八九十百]+)\s*章/);
+  if (m) return "第" + m[1] + "章";
+  m = s.match(/^([0-9]+)$/);
+  if (m) return "第" + m[1] + "章";
+  return s;
+}
+
+async function startDirExam(dirId, mode, chapter) {
   // 理论/实战考核都需要 LLM（出题 + 打标签 + 判分）
   if (!LLM_KEY) {
     const modeName = mode === "theory" ? "理论" : "实战";
@@ -4047,16 +4088,17 @@ async function startDirExam(dirId, mode) {
   if (!dd || !dd.course) { showToast("⚠️ 目录不存在"); return; }
   loading.log(`加载目录「${dd.title || ""}」`);
   loading.setProgress(40);
-  // 用该目录的题出卷
+  // 用该目录的题出卷（chapter 参数 = 按章考核：只抽该章的题）
   const dirQuiz = dd.course.quiz || [];
+  const inChapter = chapter ? (q) => normChapter(q.chapterRef || q.chapter) === chapter : () => true;
   let filtered = [];
   if (mode === "theory") {
-    filtered = dirQuiz.filter((q) => (q.dimension || inferDimension(q)) === "theory" && ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type));
+    filtered = dirQuiz.filter((q) => inChapter(q) && (q.dimension || inferDimension(q)) === "theory" && ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type));
   } else if (mode === "practical") {
-    filtered = dirQuiz.filter((q) => (q.dimension || inferDimension(q)) === "practical");
+    filtered = dirQuiz.filter((q) => inChapter(q) && (q.dimension || inferDimension(q)) === "practical");
   }
   if (!filtered.length) {
-    filtered = dirQuiz.filter((q) => (mode === "theory" ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type) : q.type === "practical"));
+    filtered = dirQuiz.filter((q) => inChapter(q) && (mode === "theory" ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type) : q.type === "practical"));
   }
   // LLM 从本章节全题库动态挑选组卷（不经过 adaptivePick 前置砍池；失败回退程序抽题）
   loading.log("LLM 从本章题库动态挑选组卷");
