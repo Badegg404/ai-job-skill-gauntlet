@@ -404,6 +404,7 @@ function flaggedQuestionTxt() {
 
 /* LLM 动态挑选组卷：把候选题摘要（类型/维度/难度）发给 LLM，按「维度多样 + 难度适配 + 不雷同」挑 count 道。
  * 失败/返回不合法时返回 null，调用方回退 adaptivePick 程序抽题。 */
+/* 保留供未来扩展（组卷已纯程序化，不再调用）：LLM 从题库挑选组卷 */
 async function llmPickQuestions(pool, mode, count, scope) {
   // scope: "chapter"（章节考核，从本章题库挑、聚焦本章）| "cross"（综合考核，从全题库挑、跨章节覆盖）
   if (!LLM_KEY || !pool || pool.length < count) return null;
@@ -459,12 +460,12 @@ function adaptivePick(pool, limit) {
   const badTexts = new Set(flags.filter((f) => f.flag === "题干有误/表述不清" || f.flag === "答案有误").map((f) => f.q));
   const softTexts = new Set(flags.filter((f) => f.flag === "考点/难度不合适").map((f) => f.q));
   if (badTexts.size) {
-    const clean = pool.filter((q) => !badTexts.has(q.question));
-    if (clean.length >= Math.min(limit, pool.length)) pool = clean;
+    // 强制剔除坏题（宁缺毋滥：即使剔除后不足 target 也绝不考错题）
+    pool = pool.filter((q) => !badTexts.has(q.question));
   }
   if (softTexts.size) {
     const rest = pool.filter((q) => !softTexts.has(q.question));
-    if (rest.length >= limit) pool = rest;
+    if (rest.length) pool = rest;
   }
   if (!pool.length) return [];
   const profilePct = abilityProfilePct();
@@ -509,10 +510,17 @@ function adaptivePick(pool, limit) {
   return shuffle(chosen);
 }
 
-function injectReviewQuestions(filtered, mode) {
+function injectReviewQuestions(filtered, mode, target, chapter) {
   const log = state.askedLog || {};
   const entries = Object.values(log);
   if (!entries.length) return filtered;
+  // BUG-FIX：回顾题也必须过滤反馈坏题 + 已知错题（否则旧错题会作为第一题反复注入）
+  const flags = state.questionFlags || [];
+  const badTexts = new Set(flags.filter((f) => f.flag === "题干有误/表述不清" || f.flag === "答案有误").map((f) => f.q));
+  const clean = entries.filter((e) => e.q && e.q.question && !badTexts.has(e.q.question)
+    && !KNOWN_BAD_QUESTIONS.some((b) => String(e.q.question).includes(b))
+    && (!chapter || normChapter(e.q.chapterRef || e.q.chapter) === chapter));   // 章节隔离：按章考核只注入本章回顾题
+  if (!clean.length) return filtered;
   // 题型过滤：回顾题必须与当前考核模式匹配（理论考核绝不注入实战题，反之亦然）
   const typeOk = (q) => {
     if (mode === "practical") return q && q.type === "practical";
@@ -520,9 +528,9 @@ function injectReviewQuestions(filtered, mode) {
     return true;   // 其他模式（面试等）不过滤
   };
   // 优先错题，且按「距离上次答错的时间」从远到近排序（间隔重复：越久越该复习）
-  const wrongs = entries.filter((e) => typeOk(e.q) && e.wrong > 0)
+  const wrongs = clean.filter((e) => typeOk(e.q) && e.wrong > 0)
     .sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
-  const others = entries.filter((e) => typeOk(e.q) && !e.wrong)
+  const others = clean.filter((e) => typeOk(e.q) && !e.wrong)
     .sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
   const candidates = wrongs.concat(others);
   // 最多抽 3 道，且不能与本次试卷重复
@@ -534,8 +542,26 @@ function injectReviewQuestions(filtered, mode) {
     chosen.push({ ...e.q, review: true });
     seen.add(e.q.question);
   }
-  // 回顾题插到试卷最前面（优先重考）
-  return chosen.concat(filtered);
+  // 总题量固定：回顾题算在 target 内（基础题截断到 target - 回顾数），不追加超量
+  const baseCap = Math.max(0, (target || filtered.length) - chosen.length);
+  return chosen.concat(filtered.slice(0, baseCap));
+}
+
+/* 组卷后选项洗牌：LLM 出题时正确答案常偏向前几个选项（A/B 占 8 成），每次考核现场打乱选项顺序，
+ * 让正确答案位置随机化、不可预测（题库数据不变，correctIndex 同步重映射） */
+function shuffleChoiceOptions(qs) {
+  for (const q of qs) {
+    if (q.type !== "choice" && q.type !== "multi_choice") continue;
+    const opts = q.options || [];
+    if (opts.length < 2) continue;
+    const order = opts.map((_, i) => i);
+    shuffle(order);   // 随机打乱下标
+    const newOpts = order.map((i) => opts[i]);
+    const ci = Array.isArray(q.correctIndex) ? q.correctIndex : [q.correctIndex];
+    q.correctIndex = ci.map((i) => order.indexOf(Number(i))).filter((i) => i >= 0);
+    q.options = newOpts;
+  }
+  return qs;
 }
 
 function render(view, html) {
@@ -1400,6 +1426,7 @@ function setImportProgress(pct, icon, text, detail) {
     <div class="imp-tips-box"><div class="imp-tip"></div></div>`;
 }
 
+/* 保留供未来扩展（组卷已纯程序化，不再调用）：LLM 动态出题补足 */
 async function llmExamQuestions(courses, mode, count = 4) {
   if (!LLM_KEY) return [];
 
@@ -2585,16 +2612,21 @@ function startExam(mode) {
     loading.setStatus("聚合章节题目");
     loading.setProgress(35);
     let filtered = [];
+    const seenQ = new Set();   // 跨目录去重（不同目录可能含相同题）
     for (const c of courses) {
       const quiz = c.quiz || [];
       for (const q of quiz) {
+        let ok = false;
         if (mode === "theory") {
-          if ((q.dimension || inferDimension(q)) === "theory" && ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)) {
-            filtered.push({ ...q, source: c.dirTitle });
-          }
+          ok = (q.dimension || inferDimension(q)) === "theory" && ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type);
         } else if (mode === "practical") {
-          if ((q.dimension || inferDimension(q)) === "practical") filtered.push({ ...q, source: c.dirTitle });
+          ok = (q.dimension || inferDimension(q)) === "practical" && q.type === "practical";
         }
+        if (!ok) continue;
+        const key = String(q.question || "");
+        if (seenQ.has(key)) continue;
+        seenQ.add(key);
+        filtered.push({ ...q, source: c.dirTitle });
       }
     }
     // 程序化组卷：从聚合题库随机抽取（难度/薄弱维度加权 + 反馈坏题剔除 + 随机），不依赖 LLM 现出题
@@ -2609,12 +2641,15 @@ function startExam(mode) {
     }
     loading.setProgress(95);
     // D1：回顾题（第 2 次及以后从历史错题/考过题抽 2-3 道，按模式过滤题型）
-    loading.log("注入回顾题（错题间隔重考）");
-    filtered = injectReviewQuestions(filtered, mode);
+    loading.log("注入回顾题（错题间隔重考，计入总题量）");
+    filtered = injectReviewQuestions(filtered, mode, mode === "theory" ? 16 : 10);
     // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
     filtered = filtered.filter((q) => mode === "theory"
       ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
       : q.type === "practical");
+    filtered = filterKnownBad(filtered);   // 已知错题硬黑名单（最终防线）
+    filtered = shuffleChoiceOptions(filtered);   // 选项洗牌：正确答案位置随机化
+    filtered = shuffle(filtered);   // 题目整体再洗牌：回顾题融入随机位置，每场顺序不同
     loading.setProgress(95);
     await loading.finish();   // 确保动画至少展示一小段，避免本地加载太快一闪而过
     quiz = filtered;
@@ -4021,7 +4056,6 @@ async function deleteDirFile(dirId, filename) {
   });
 }
 
-/* 针对某个目录进行理论/实战考核 */
 /* 章节名归一化：'2' / '第2章' / '第2章 Function Calling' → '第2章'；无 → '未分章' */
 function normChapter(ch) {
   if (!ch) return "未分章";
@@ -4033,6 +4067,15 @@ function normChapter(ch) {
   return s;
 }
 
+/* 已知错题硬黑名单（代码级最终防线：题目文本含以下片段即过滤，不依赖题库数据/localStorage） */
+const KNOWN_BAD_QUESTIONS = [
+  "选择 Action → ____ → 记录 Observation",   // ReAct 旧错题：标准三步为 Thought → Action → Observation
+];
+function filterKnownBad(qs) {
+  return qs.filter((q) => !KNOWN_BAD_QUESTIONS.some((b) => String(q.question || "").includes(b)));
+}
+
+/* 针对某个目录进行理论/实战考核（chapter = 按章考核：只抽该章题目） */
 async function startDirExam(dirId, mode, chapter) {
   // 理论/实战考核都需要 LLM（出题 + 打标签 + 判分）
   if (!LLM_KEY) {
@@ -4087,12 +4130,15 @@ async function startDirExam(dirId, mode, chapter) {
   loading.log("题库组卷 → " + filtered.length + " 题（程序随机组卷 · 回顾题稍后注入）");
   if (!filtered.length) { showToast("⚠️ 该目录暂无此类题目，请先导入对应资料"); return; }
   // D1：回顾题（按模式过滤题型，理论考核不注入实战题）
-  loading.log("注入回顾题（错题间隔重考）");
-  filtered = injectReviewQuestions(filtered, mode);
+  loading.log("注入回顾题（错题间隔重考，计入总题量）");
+  filtered = injectReviewQuestions(filtered, mode, mode === "theory" ? 8 : 5, chapter);
   // 最终防御：按考核模式过滤题型（LLM 动态题/回顾题可能混入其他题型）
   filtered = filtered.filter((q) => mode === "theory"
     ? ["choice", "multi_choice", "true_false", "fill_blank"].includes(q.type)
     : q.type === "practical");
+  filtered = filterKnownBad(filtered);   // 已知错题硬黑名单（最终防线）
+  filtered = shuffleChoiceOptions(filtered);   // 选项洗牌：正确答案位置随机化
+  filtered = shuffle(filtered);   // 题目整体再洗牌：回顾题融入随机位置，每场顺序不同
   loading.setProgress(95);
   await loading.finish();   // 确保动画至少展示一小段
   quiz = filtered;
