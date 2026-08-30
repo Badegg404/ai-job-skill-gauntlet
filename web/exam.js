@@ -2733,7 +2733,9 @@ function renderQuestion() {
       ${quizIdx > 0 ? `<button class="exam-btn ghost" onclick="prevQuestion()">← 上一题</button>` : "<span></span>"}
       ${answers.some((a) => a.q === q)
         ? `<button class="exam-btn primary" id="submit-btn" onclick="nextQuestion()">${quizIdx === total - 1 ? "🏁 查看成绩" : "下一题 →"}</button>`
-        : `<button class="exam-btn primary" id="submit-btn" onclick="submitAnswer()">${quizIdx === total - 1 ? "🏁 提交并评分" : "✅ 确认答案 →"}</button>`}
+        : (q.type === "practical" && (q.practical || {}).compareMode === "code_fill")
+          ? `<button class="exam-btn primary" id="submit-btn" onclick="runCodeFill()">▶ 运行代码（${quizIdx === total - 1 ? "最后一步" : "然后下一题"}）</button>`
+          : `<button class="exam-btn primary" id="submit-btn" onclick="submitAnswer()">${quizIdx === total - 1 ? "🏁 提交并评分" : "✅ 确认答案 →"}</button>`}
     </div>`);
 }
 
@@ -2784,6 +2786,24 @@ function questionBody(q) {
     } else if (p.compareMode === "llm_code") {
       body += `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;font-family:var(--mono)">⌨️ 请编写代码实现上面的任务（Python）</div>
       <textarea class="qz-code-input" id="code-input" rows="10" spellcheck="false" placeholder="在这里写你的代码…" style="width:100%;font-family:var(--mono);background:#0a0f16;color:#e6f7ff;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;resize:vertical;box-sizing:border-box"></textarea>`;
+    } else if (p.compareMode === "code_fill") {
+      // 代码补全题：代码缺失关键行（missingLines），用户逐行补全后「运行」验证输出（LLM 判分）
+      const lines = String(p.code || "").split("\n");
+      const missing = new Set((p.missingLines || []).map((n) => Number(n)));
+      const cfBody = lines.map((ln, i) => {
+        const n = i + 1;
+        if (missing.has(n)) {
+          return `<div class="code-line" style="background:rgba(255,184,77,0.09)"><span class="code-no">${String(n).padStart(4, "0")}</span><input class="cf-fill" data-line="${n}" placeholder="← 补充第 ${n} 行（缩进要正确）" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:#ffd08a;font-family:var(--mono);font-size:12.5px;padding:0 2px"></div>`;
+        }
+        return `<div class="code-line"><span class="code-no">${String(n).padStart(4, "0")}</span><span class="code-txt">${esc(ln) || "\u00a0"}</span></div>`;
+      }).join("");
+      body += `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;font-family:var(--mono)">🧩 补齐缺失代码，点击「运行」验证输出（3 次机会）</div>
+      <div class="code-block" style="margin-bottom:10px">${cfBody}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="exam-btn primary" id="cf-run-btn" onclick="runCodeFill()">▶ 运行代码</button>
+        <span id="cf-status" style="font-size:12px;color:var(--text-2);font-family:var(--mono)">剩余 3 次运行机会</span>
+      </div>
+      <pre id="cf-output" style="display:none;margin-top:10px;background:#0a0f16;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:12.5px;color:#7ee8c8;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto"></pre>`;
     } else {
       body += `<textarea class="paste-area" id="paste-input" placeholder="运行代码后，把终端输出粘贴到这里，或描述关键区别…"></textarea>`;
     }
@@ -2818,6 +2838,96 @@ function collectAnswer() {
     return $("#paste-input")?.value?.trim() || "";
   }
   return null;
+}
+
+/* ===== code_fill 代码补全题：运行验证（LLM 判分）+ 3 次机会 ===== */
+const cfRuns = {};   // quizIdx -> 已运行次数
+
+function runCodeFill() {
+  const q = quiz[quizIdx];
+  const p = (q && q.practical) || {};
+  if (answers.some((a) => a.q === q)) { showToast("⚠️ 该题已作答，请继续下一题"); return; }
+  if (!cfRuns[quizIdx]) cfRuns[quizIdx] = 0;
+  // 组装代码：缺失行用用户输入补回
+  const lines = String(p.code || "").split("\n");
+  const missing = new Set((p.missingLines || []).map((n) => Number(n)));
+  let incomplete = false;
+  const filled = lines.map((ln, i) => {
+    const n = i + 1;
+    if (missing.has(n)) {
+      const v = $(`.cf-fill[data-line="${n}"]`)?.value || "";
+      if (!v.trim()) incomplete = true;
+      return v.replace(/\n/g, "");
+    }
+    return ln;
+  });
+  if (incomplete) { showToast("⚠️ 还有缺失行未填写"); return; }
+  const code = filled.join("\n");
+  const btn = $("#cf-run-btn");
+  const st = $("#cf-status");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ 运行中…"; }
+  if (st) st.textContent = "⏳ 正在运行…";
+  fetch("/api/run-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uid: UID, code, timeoutMs: 8000 }),
+  }).then((r) => r.json()).then((data) => {
+    if (btn) { btn.disabled = false; btn.textContent = "▶ 运行代码"; }
+    const outEl = $("#cf-output");
+    if (outEl) { outEl.style.display = "block"; outEl.textContent = (data.ok ? "" : "⚠️ ") + ((data.stdout || "") + (data.stderr || "") + (data.error ? "\n" + data.error : "")).trim() || "（无输出）"; }
+    // LLM 判断：运行输出是否符合预期（data.ok 且输出包含 expectedOutput）
+    const expected = String(p.expectedOutput || "").trim();
+    const passed = data.ok && expected && ((data.stdout || "") + (data.stderr || "")).indexOf(expected) >= 0;
+    if (passed) {
+      if (st) st.textContent = "✅ 输出符合预期，本题通过！";
+      finishCodeFill(q, true);
+      return;
+    }
+    cfRuns[quizIdx]++;
+    const left = 3 - cfRuns[quizIdx];
+    if (st) st.textContent = left > 0 ? "❌ 输出不符合预期，剩余 " + left + " 次机会" : "❌ 3 次机会已用完，本题计错";
+    if (left <= 0) {
+      if (p.hint) showToast("💡 提示：" + p.hint);
+      finishCodeFill(q, false);
+    } else {
+      showToast("❌ 输出不符合预期，请检查代码后再试（剩余 " + left + " 次）");
+    }
+  }).catch(() => {
+    if (btn) { btn.disabled = false; btn.textContent = "▶ 运行代码"; }
+    if (st) st.textContent = "⚠️ 运行服务不可用";
+    showToast("⚠️ 运行服务不可用，请检查服务器");
+  });
+}
+
+function finishCodeFill(q, ok) {
+  answers.push({ q, userAns: { codeFill: true, ok }, judged: ok });
+  if (ok !== null) recordAsked(q, !ok);
+  const ab = q.ability || "提示词工程";
+  if (!abilityScore[ab]) abilityScore[ab] = { got: 0, total: 0, n: 0 };
+  abilityScore[ab].total += BASE_SCORE[q.type] || 10;
+  abilityScore[ab].n += 1;
+  if (ok) {
+    correctCount++;
+    combo++;
+    const mult = combo >= 8 ? 2 : combo >= 5 ? 1.5 : combo >= 3 ? 1.2 : 1;
+    const gained = Math.round((BASE_SCORE[q.type] || 10) * mult);
+    state.xp += gained;
+    if (combo > state.bestCombo) state.bestCombo = combo;
+    abilityScore[ab].got += BASE_SCORE[q.type] || 10;
+    showFeedback(true, gained, q, { codeFill: true });
+    showCombo(combo);
+    celebrateCorrect();
+  } else {
+    combo = 0;
+    showFeedback(false, 0, q, { codeFill: true });
+    burstParticles(window.innerWidth / 2, 160, "#ff6b6b");
+  }
+  const sb = $("#submit-btn");
+  if (sb) {
+    sb.textContent = quizIdx === quiz.length - 1 ? "🏁 查看成绩" : "下一题 →";
+    sb.onclick = () => nextQuestion();
+    sb.disabled = false;
+  }
 }
 
 function submitAnswer() {
@@ -2943,6 +3053,7 @@ function showFeedback(ok, gained, q, userAns) {
     ? `正确答案：<strong>${(Array.isArray(q.correctIndex) ? q.correctIndex : [q.correctIndex]).map((i) => String.fromCharCode(65 + i)).join("、")}</strong>`
     : q.type === "true_false" ? `正确答案：<strong>${esc(q.correctAnswer)}</strong>`
     : q.type === "fill_blank" ? `正确答案：<strong>${esc((q.fillAnswers || [q.correctAnswer]).join(" / "))}</strong>`
+    : q.type === "practical" && (q.practical || {}).compareMode === "code_fill" ? `预期输出：<strong>${esc((q.practical || {}).expectedOutput || "")}</strong>${(q.practical || {}).hint ? `<br>💡 提示：${esc((q.practical || {}).hint)}` : ""}`
     : "";
   // 选项高亮动画：正确项闪绿，答错的选项闪红
   if (q.type === "choice" || q.type === "multi_choice") {

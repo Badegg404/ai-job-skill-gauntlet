@@ -29,6 +29,7 @@
           codeBlocks: { type: "array" },
         },
         llm_code: { referenceAnswer: true },
+        code_fill: { code: { type: "string", required: true }, missingLines: { type: "array", required: true }, expectedOutput: { type: "string", required: true }, hint: { type: "string" } },
       } },
     // 数据统一方案 P3 新增强校验：difficulty 范围 / explanation 长度
     { field: "difficulty", type: "number", range: [1, 5] },

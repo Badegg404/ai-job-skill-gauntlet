@@ -31,6 +31,8 @@ import threading
 import time
 import uuid
 import webbrowser
+import shutil
+import subprocess
 from collections import Counter
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -57,6 +59,59 @@ from pipeline import (  # noqa: E402
     build_dir_from_files, build_course_from_md, course_summary,
     enrich_quiz, assign_chapter_refs, process_aux_file,
 )
+
+# ===== 数据目录自动 git 化（本地版本管理，纯本地无 remote，静默失败） =====
+_DATA_GIT_ROOT = None
+_data_commit_timer = None
+
+def _git_ok():
+    return shutil.which("git") is not None
+
+def _data_gitignore(root):
+    gi = os.path.join(root, ".gitignore")
+    if not os.path.exists(gi):
+        try:
+            with open(gi, "w", encoding="utf-8") as fh:
+                fh.write("# 运行日志不入库\nlogs/\nstartup.log\nusers/*/logs/\nusers/*/import-debug.log\nusers/*/reset-ts\n.DS_Store\n__pycache__/\n")
+        except Exception:
+            pass
+
+def ensure_data_git():
+    """启动时调用：数据目录自动 git 化（首次 init + 提交）。无 git / 失败静默。"""
+    global _DATA_GIT_ROOT
+    if not _git_ok():
+        return False
+    root = str(Path(DATA_DIR))
+    _DATA_GIT_ROOT = root
+    try:
+        if not os.path.isdir(os.path.join(root, ".git")):
+            subprocess.run(["git", "-C", root, "init", "-b", "main"], capture_output=True, timeout=30)
+            _data_gitignore(root)
+            subprocess.run(["git", "-C", root, "add", "-A"], capture_output=True, timeout=60)
+            subprocess.run(["git", "-C", root, "commit", "-m", "chore: 考核数据仓库初始化", "--allow-empty"], capture_output=True, timeout=60)
+            log_json(APP_LOGGER, "info", "data.git-init", "数据目录已自动 git 化", {"root": root})
+        return True
+    except Exception:
+        return False
+
+def schedule_data_commit(reason="数据变更"):
+    """数据变更后调用：30s 防抖合并提交（静默失败，不干扰主流程）。"""
+    global _data_commit_timer, _DATA_GIT_ROOT
+    if not _git_ok() or not _DATA_GIT_ROOT:
+        return
+    def _do():
+        try:
+            subprocess.run(["git", "-C", _DATA_GIT_ROOT, "add", "-A"], capture_output=True, timeout=60)
+            st = subprocess.run(["git", "-C", _DATA_GIT_ROOT, "status", "--porcelain"], capture_output=True, text=True, timeout=30)
+            if st.stdout.strip():
+                subprocess.run(["git", "-C", _DATA_GIT_ROOT, "commit", "-m", "data: 自动保存（" + reason + "）"], capture_output=True, timeout=60)
+        except Exception:
+            pass
+    if _data_commit_timer:
+        _data_commit_timer.cancel()
+    _data_commit_timer = threading.Timer(30, _do)
+    _data_commit_timer.daemon = True
+    _data_commit_timer.start()
 
 # ===== 日志系统（stdlib logging，零依赖） =====
 # app.log:   全局系统日志（启动/端口/请求/未捕获异常），DATA_DIR/logs/app.log
@@ -336,6 +391,8 @@ class CourseHandler(SimpleHTTPRequestHandler):
             self._handle_logs_clear()
         elif parsed.path == "/api/dir-file-delete":
             self._handle_dir_file_delete()
+        elif parsed.path == "/api/run-code":
+            self._handle_run_code()
         elif parsed.path == "/api/reset-all":
             self._handle_reset_all()
         else:
@@ -464,6 +521,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True, "stale": True})
                 return
             (d / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+            schedule_data_commit("画像保存")
             self._send_json({"ok": True, "saved": str(d / "profile.json")})
         except Exception as e:
             self._send_json({"error": f"保存失败: {e}"}, 500)
@@ -506,6 +564,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                     for f in dd.get("files", []):
                         f["questionCount"] = quiz_by_file.get(f.get("filename", ""), 0)
                     save_dir(uid, dd)
+            schedule_data_commit("课程保存")
             self._send_json({"ok": True, "saved": str(d / "course.json")})
         except Exception as e:
             self._send_json({"error": f"保存失败: {e}"}, 500)
@@ -644,6 +703,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 except Exception as e:
                     log_json(APP_LOGGER, "warn", "dir.rename-mirror-fail", "目录改名后课程镜像同步失败",
                              {"dirId": dir_id, "old": str(old_mirror), "new": str(new_mirror), "err": str(e)})
+        schedule_data_commit("目录改名")
         self._send_json({"ok": True, "title": dd["title"]})
 
     def _handle_import_debug(self):
@@ -695,6 +755,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                 n += 1
             except Exception:
                 continue
+        schedule_data_commit("追加文件")
         self._send_json({"ok": True, "n": n})
 
     def _handle_logs(self, q):
@@ -782,6 +843,52 @@ class CourseHandler(SimpleHTTPRequestHandler):
         rebuild_dirs_index(uid)
         self._send_json({"ok": True})
 
+    def _handle_run_code(self):
+        """执行用户补全的 Python 代码（实战题「代码补全 + 运行验证」）。
+        本地 subprocess 运行，8 秒超时；只返回运行输出（不含代码），代码内容不入日志。
+        """
+        try:
+            body = self._read_body(1 * 1024 * 1024)
+            data = json.loads(body or b"{}")
+            code = str(data.get("code") or "")
+            if not code.strip():
+                self._send_json({"ok": False, "error": "代码为空"})
+                return
+            timeout_ms = int(data.get("timeoutMs") or 8000)
+            timeout_s = max(1, min(timeout_ms, 15000) / 1000.0)
+            import subprocess, tempfile, shutil
+            # 隔离工作目录（空临时目录，代码无法读取用户文件）
+            workdir = tempfile.mkdtemp(prefix="exam-run-")
+            try:
+                # Unix 下加资源限制：内存 256MB / CPU 5s，防恶意或失控代码吃满机器
+                pre = None
+                try:
+                    import resource
+                    def _pre():
+                        resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024))
+                        resource.setrlimit(resource.RLIMIT_CPU, (5, 5))
+                    pre = _pre
+                except Exception:
+                    pass
+                proc = subprocess.run(
+                    [sys.executable, "-u", "-c", code],
+                    capture_output=True, text=True, timeout=timeout_s,
+                    cwd=workdir,
+                    preexec_fn=pre if pre else None,
+                    env={"PATH": os.environ.get("PATH", ""), "HOME": workdir, "PYTHONIOENCODING": "utf-8"},
+                )
+                out = proc.stdout or ""
+                err = proc.stderr or ""
+                if len(out) > 20000: out = out[-20000:] + "\n[输出已截断]"
+                if len(err) > 8000: err = err[-8000:] + "\n[错误已截断]"
+                self._send_json({"ok": True, "exitCode": proc.returncode, "stdout": out, "stderr": err})
+            except subprocess.TimeoutExpired:
+                self._send_json({"ok": True, "exitCode": -1, "stdout": "", "stderr": "[运行超时（8s）——代码可能死循环，请检查]"})
+            finally:
+                shutil.rmtree(workdir, ignore_errors=True)
+        except Exception as e:
+            self._send_json({"ok": False, "error": "运行失败: " + str(e)[:200]})
+
     def _handle_reset_all(self):
         """彻底清空该用户的所有数据：当前课程、课程库、资料目录、档案、导入存档。"""
         try:
@@ -823,6 +930,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
             log_json(APP_LOGGER, "warn", "profile.reset-partial", "重置数据时部分文件删除失败",
                      {"uid": uid, "failed": clear_fail})
         log_json(activity_logger(uid), "info", "profile.reset", "用户重置了全部数据", {"resetDir": str(d)})
+        schedule_data_commit("重置数据")
         self._send_json({"ok": True, "reset": str(d)})
 
     def _handle_dir_file_delete(self):
@@ -860,6 +968,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
         course["materials"] = [m for m in course.get("materials", []) if m.get("file") != Path(filename).name and m.get("path") != filename]
         dd["course"] = course
         save_dir(uid, dd)
+        schedule_data_commit("删除文件")
         self._send_json({"ok": True, "removedQuestions": removed, "fileCount": len(dd["files"]), "quizCount": len(keep)})
 
     def _handle_dir_file_add(self):
@@ -994,6 +1103,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
             # 3. 存档原始资料
             archive = archive_import(uid, filename, md, summary, len(engine_questions), len(llm_questions))
 
+            schedule_data_commit("导入资料")
             self._send_json({
                 "ok": True,
                 "summary": summary,
@@ -1062,6 +1172,7 @@ class CourseHandler(SimpleHTTPRequestHandler):
                              {"uid": uid, "filename": item.get("filename", ""), "err": str(e)})
 
             quiz = main_course.get("quiz", [])
+            schedule_data_commit("批量导入")
             self._send_json({
                 "ok": True,
                 "dir": dir_data,
@@ -1128,6 +1239,9 @@ def main():
         log_json(APP_LOGGER, "error", "app.start-fail", "端口均被占用，无法启动", {"port": port})
         print("❌ 无法启动：端口均被占用")
         sys.exit(1)
+
+    # 数据目录自动 git 化（本地版本管理，静默失败）
+    ensure_data_git()
 
     _startup_log(f"[listening] http://127.0.0.1:{port}/exam.html")
     log_json(APP_LOGGER, "info", "app.listen", "服务已监听", {"url": f"http://127.0.0.1:{port}/exam.html"})
